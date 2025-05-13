@@ -213,24 +213,7 @@ async function findMovieItem(imdbId, tmdbId) {
         }
     }
 
-    // --- Strategy 2: Numeric IMDb ID Lookup (/Items) ---
-    if (!foundItem && imdbId) {
-        const numericImdbId = imdbId.replace('tt', '');
-        if (numericImdbId !== imdbId) {
-            const numericMovieParams = { ...baseMovieParams, ImdbId: numericImdbId };
-            delete numericMovieParams.TmdbId; // Ensure TmdbId isn't included
-            const data = await makeEmbyApiRequest(`${EMBY_URL}/Items`, numericMovieParams);
-             if (data?.Items?.length > 0) {
-                foundItem = data.Items.find(i => _isMatchingProviderId(i.ProviderIds, imdbId, null)); // Only check against original imdbId
-                 if (foundItem) {
-                    console.log(`🔍 Found movie via /Items with numeric ImdbId=${numericImdbId}`);
-                    return foundItem;
-                }
-            }
-        }
-    }
-
-    // --- Strategy 3: AnyProviderIdEquals Lookup (/Users/{UserId}/Items) ---
+    // --- Strategy 2: AnyProviderIdEquals Lookup (/Users/{UserId}/Items) ---
     if (!foundItem) {
         const anyProviderIdFormats = [];
         if (imdbId) {

@@ -3,7 +3,6 @@ const emby = require("./embyClient");
 require('dotenv').config();
 
 const PORT = process.env.PORT || 7000;
-const SHARED_SECRET = process.env.STREAMBRIDGE_SECRET;
 
 const builder = new addonBuilder({
   id: "org.streambridge.embyresolver",   

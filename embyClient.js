@@ -258,29 +258,6 @@ async function findMovieItem(imdbId, tmdbId) {
         }
     }
 
-    // --- Strategy 4: Fallback Manual Scan (Recent Items) ---
-    // This is less reliable and potentially slow - use as last resort.
-    if (!foundItem) {
-        console.log("⏳ Movie not found via specific ID lookups, attempting fallback scan...");
-        const fallbackParams = {
-            Recursive: true,
-            IncludeItemTypes: ITEM_TYPE_MOVIE,
-            Fields: DEFAULT_FIELDS,
-            Limit: 100, // Increase limit for scan
-            SortBy: "DateCreated",
-            SortOrder: "Descending",
-            Filters: "IsNotFolder"
-         };
-        const data = await makeEmbyApiRequest(`${EMBY_URL}/Users/${userId}/Items`, fallbackParams);
-        if (data?.Items?.length > 0) {
-            foundItem = data.Items.find(movie => _isMatchingProviderId(movie.ProviderIds, imdbId, tmdbId));
-            if (foundItem) {
-                 console.log(`️🔍 Found movie via fallback scan of recent items.`);
-                return foundItem;
-            }
-        }
-    }
-
      if (!foundItem) console.log(`📭 No Emby movie match found for ${imdbId || tmdbId}.`);
     return null; // Return null if not found after all attempts
 }
@@ -418,7 +395,8 @@ async function getPlaybackStreams(embyItem, seriesName = null) {
 
     for (const source of playbackInfoData.MediaSources) {
         // Only consider direct playable MKV sources as per original logic
-        if (source.SupportsDirectPlay && source.Container && source.Container.toLowerCase() === 'mkv') {
+        if (source.SupportsDirectPlay && source.Container //&& source.Container.toLowerCase() === 'mkv'
+          ) {
             const videoStream = source.MediaStreams?.find(ms => ms.Type === 'Video');
             const audioStream = source.MediaStreams?.find(ms => ms.Type === 'Audio');
 
@@ -444,10 +422,10 @@ async function getPlaybackStreams(embyItem, seriesName = null) {
             if (source.Name && !qualityTitle) {
                  qualityTitle = source.Name;
             }
-            qualityTitle = qualityTitle || 'Direct Play MKV'; // Fallback title
+            qualityTitle = qualityTitle || 'Direct Play'; // Fallback title
 
 
-             console.log(`✅ Adding DirectPlay MKV stream: (Quality hint: ${qualityTitle})`);
+             console.log(`✅ Adding DirectPlay stream: (Quality hint: ${qualityTitle})`);
             // console.log(`   URL: ${directPlayUrl}`); // Optional: Log the full URL if needed for debugging
 
             streamDetailsArray.push({
@@ -470,7 +448,7 @@ async function getPlaybackStreams(embyItem, seriesName = null) {
     }
 
     if (streamDetailsArray.length === 0) {
-        console.warn(`❌ No direct playable MKV sources found for item: ${embyItem.Name} (${embyItem.Id})`);
+        console.warn(`❌ No direct playable sources found for item: ${embyItem.Name} (${embyItem.Id})`);
         return null;
     }
 

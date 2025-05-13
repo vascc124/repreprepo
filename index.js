@@ -3,6 +3,7 @@ const emby = require("./embyClient");
 require('dotenv').config();
 
 const PORT = process.env.PORT || 7000;
+const SHARED_SECRET = process.env.STREAMBRIDGE_SECRET;
 
 const builder = new addonBuilder({
   id: "org.streambridge.embyresolver",   
@@ -22,7 +23,7 @@ const builder = new addonBuilder({
 });
 
 // Stream handler
-builder.defineStreamHandler(async ({ type, id }) => {
+builder.defineStreamHandler(async ({ type, id }) => {  
   console.log(`📥 Received ${type} stream request for ID: ${id}`);
 
   try {
@@ -40,25 +41,16 @@ builder.defineStreamHandler(async ({ type, id }) => {
       if (!details.directPlayUrl) return null;
 
       /* Construct the title for the Stremio stream */
-      let title = "Emby: "; 
-      if (type === 'series' && details.seriesName && details.seasonNumber && details.episodeNumber) {
-        title += `${details.seriesName} S${String(details.seasonNumber).padStart(2, '0')}E${String(details.episodeNumber).padStart(2, '0')}`;
-        if (details.itemName && details.itemName !== details.seriesName) {
-          title += ` - ${details.itemName}`;
-        }
-      } else if (details.itemName) {
-        title += details.itemName;
-      }
-
+      let title = ""; 
       /* Add the quality title to the title if it exists */
       title += details.qualityTitle && details.qualityTitle !== "Direct Play"
-        ? ` (${details.qualityTitle})`
-        : " (Direct Play)";
+        ? `${details.qualityTitle}`
+        : "Direct Play";
 
       /* Return the Stremio stream */
       return {
         title,
-        name: `Emby - ${details.itemName || (type === 'series' ? 'Episode' : 'Movie')}`,
+        name: `Emby`,
         url: details.directPlayUrl,
         behaviorHints: {
           notWebReady: true

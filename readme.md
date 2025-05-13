@@ -1,6 +1,6 @@
 # StreamBridge: Emby to Stremio
 
-**StreamBridge** is an unofficial Stremio addon that allows you to stream content from your personal Emby server using IMDb or TMDb IDs. This addon acts as a resolver, responding to stream requests in Stremio with direct play MKV links from your Emby library.
+**StreamBridge** is an unofficial Stremio addon that allows you to stream content from your personal Emby server using IMDb or TMDb IDs. This addon acts as a resolver, responding to stream requests in Stremio with direct play links from your Emby library.
 
 > ⚠️ This addon does **not** expose your full Emby catalog to Stremio. It works as a resolver only: when a movie or series is clicked in Stremio (and matches your Emby library), this addon returns a playable stream URL.
 
@@ -8,7 +8,7 @@
 
 ## 🔧 Features
 
-- ✅ Direct MKV streaming from Emby to Stremio
+- ✅ Direct streaming from Emby to Stremio
 - ✅ Supports both movies and TV episodes
 - ✅ Matches by IMDb or TMDb ID (e.g., `tt1234567`, `tmdb:98765`)
 - ✅ Private use only – no external exposure of your library
@@ -21,7 +21,7 @@
 1. You install this addon in Stremio (via manifest URL)
 2. Stremio sends stream requests for clicked titles (e.g., from Cinemeta)
 3. StreamBridge checks your Emby library for a matching item
-4. If found, it responds with a direct stream link (MKV only)
+4. If found, it responds with a direct stream link
 
 ---
 
@@ -72,10 +72,6 @@ http://localhost:7000/manifest.json
 ```
 http://localhost:7000/manifest.json
 ```
-
-Yes — that’s a great idea. Instead of assuming everyone needs to configure inbound rules or port forwarding, it’s cleaner and safer to **just give a heads-up** that network access may require extra setup depending on the user’s OS and firewall.
-
-Here’s a concise, professional way to phrase it in your `README.md`:
 
 ---
 ### 📺 Using on Local Network (TV or Other Devices)

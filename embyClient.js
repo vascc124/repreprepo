@@ -380,7 +380,7 @@ async function findEpisodeItem(parentSeriesItem, seasonNumber, episodeNumber) {
  * @returns {Promise<Array<object>|null>} An array of stream detail objects or null if no suitable streams are found.
  */
 async function getPlaybackStreams(embyItem, seriesName = null) {
-    const playbackInfoParams = { UserId: userId };
+    const playbackInfoParams = { UserId: userId};
     const playbackInfoData = await makeEmbyApiRequest(
         `${EMBY_URL}/Items/${embyItem.Id}/PlaybackInfo`,
         playbackInfoParams
@@ -394,57 +394,51 @@ async function getPlaybackStreams(embyItem, seriesName = null) {
     const streamDetailsArray = [];
 
     for (const source of playbackInfoData.MediaSources) {
-        // Only consider direct playable MKV sources as per original logic
-        if (source.SupportsDirectPlay && source.Container //&& source.Container.toLowerCase() === 'mkv'
-          ) {
-            const videoStream = source.MediaStreams?.find(ms => ms.Type === 'Video');
-            const audioStream = source.MediaStreams?.find(ms => ms.Type === 'Audio');
+        
+      const videoStream = source.MediaStreams?.find(ms => ms.Type === 'Video');
+      const audioStream = source.MediaStreams?.find(ms => ms.Type === 'Audio');
 
-            const directPlayUrl = `${EMBY_URL}/Videos/${embyItem.Id}/stream.${source.Container}?MediaSourceId=${source.Id}&Static=true&api_key=${accessToken}&DeviceId=stremio-addon-device-id`; // Ensure DeviceId is appropriate
+      const directPlayUrl = `${EMBY_URL}/Videos/${embyItem.Id}/stream.${source.Container}?MediaSourceId=${source.Id}&Static=true&api_key=${accessToken}&DeviceId=stremio-addon-device-id`; // Ensure DeviceId is appropriate
 
-            // Build Quality Title (same logic as original)
-            let qualityTitle = "";
-             if (videoStream) {
-                qualityTitle += videoStream.DisplayTitle || "";
-                if (videoStream.Width && videoStream.Height) {
-                    if (!qualityTitle.toLowerCase().includes(videoStream.Height + "p") && !qualityTitle.toLowerCase().includes(videoStream.Width + "x" + videoStream.Height)) {
-                        qualityTitle = (qualityTitle ? qualityTitle + " " : "") + `${videoStream.Height}p`;
-                    }
-                }
-                if (videoStream.Codec) {
-                    if (!qualityTitle.toLowerCase().includes(videoStream.Codec.toLowerCase())) {
-                         qualityTitle = (qualityTitle ? qualityTitle + " " : "") + videoStream.Codec.toUpperCase();
-                    }
-                }
-            } else if (source.Container) {
-                qualityTitle = source.Container.toUpperCase();
-            }
-            if (source.Name && !qualityTitle) {
-                 qualityTitle = source.Name;
-            }
-            qualityTitle = qualityTitle || 'Direct Play'; // Fallback title
+      // Build Quality Title (same logic as original)
+      let qualityTitle = "";
+        if (videoStream) {
+          qualityTitle += videoStream.DisplayTitle || "";
+          if (videoStream.Width && videoStream.Height) {
+              if (!qualityTitle.toLowerCase().includes(videoStream.Height + "p") && !qualityTitle.toLowerCase().includes(videoStream.Width + "x" + videoStream.Height)) {
+                  qualityTitle = (qualityTitle ? qualityTitle + " " : "") + `${videoStream.Height}p`;
+              }
+          }
+          if (videoStream.Codec) {
+              if (!qualityTitle.toLowerCase().includes(videoStream.Codec.toLowerCase())) {
+                    qualityTitle = (qualityTitle ? qualityTitle + " " : "") + videoStream.Codec.toUpperCase();
+              }
+          }
+      } else if (source.Container) {
+          qualityTitle = source.Container.toUpperCase();
+      }
+      if (source.Name && !qualityTitle) {
+            qualityTitle = source.Name;
+      }
+      qualityTitle = qualityTitle || 'Direct Play'; // Fallback title
 
-
-             console.log(`✅ Adding DirectPlay stream: (Quality hint: ${qualityTitle})`);
-            // console.log(`   URL: ${directPlayUrl}`); // Optional: Log the full URL if needed for debugging
-
-            streamDetailsArray.push({
-                directPlayUrl: directPlayUrl,
-                itemName: embyItem.Name,
-                seriesName: seriesName, // Pass the series name if available
-                // Use season/episode numbers directly from the embyItem if it's an episode
-                seasonNumber: embyItem.Type === ITEM_TYPE_EPISODE ? embyItem.ParentIndexNumber : null,
-                episodeNumber: embyItem.Type === ITEM_TYPE_EPISODE ? embyItem.IndexNumber : null,
-                itemId: embyItem.Id,
-                mediaSourceId: source.Id,
-                container: source.Container,
-                videoCodec: videoStream?.Codec || source.VideoCodec || null, // Prefer stream info
-                audioCodec: audioStream?.Codec || null, // Prefer stream info
-                qualityTitle: qualityTitle,
-                embyUrlBase: EMBY_URL,
-                apiKey: accessToken // Exposing API key here - ensure this is acceptable for the client
-            });
-        }
+      streamDetailsArray.push({
+          directPlayUrl: directPlayUrl,
+          itemName: embyItem.Name,
+          seriesName: seriesName, // Pass the series name if available
+          // Use season/episode numbers directly from the embyItem if it's an episode
+          seasonNumber: embyItem.Type === ITEM_TYPE_EPISODE ? embyItem.ParentIndexNumber : null,
+          episodeNumber: embyItem.Type === ITEM_TYPE_EPISODE ? embyItem.IndexNumber : null,
+          itemId: embyItem.Id,
+          mediaSourceId: source.Id,
+          container: source.Container,
+          videoCodec: videoStream?.Codec || source.VideoCodec || null, // Prefer stream info
+          audioCodec: audioStream?.Codec || null, // Prefer stream info
+          qualityTitle: qualityTitle,
+          embyUrlBase: EMBY_URL,
+          apiKey: accessToken // Exposing API key here - ensure this is acceptable for the client
+      });
+      
     }
 
     if (streamDetailsArray.length === 0) {

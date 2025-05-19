@@ -398,7 +398,7 @@ async function getStream(idOrExternalId, { serverUrl, userId: newUserId, accessT
     currentAccessToken = newAccessToken;
     currentUserId = newUserId;
     
-    console.log(`🔧 Using Emby config - URL: ${currentEmbyUrl}, UserID: ${currentUserId}`);
+    
     // Validate provided configuration
     if (!currentEmbyUrl || !currentUserId || !currentAccessToken) {
         console.error("❌ Configuration missing (serverUrl, userId, or accessToken)");
@@ -448,6 +448,11 @@ async function getStream(idOrExternalId, { serverUrl, userId: newUserId, accessT
     } catch (err) {
         console.error(`❌ Unhandled error in getStreamWithConfig for ID ${fullIdForLog}:`, err.message, err.stack);
         return null;
+    } finally {
+        // Always restore state
+        currentEmbyUrl = originalEmbyUrlGlobal;
+        currentAccessToken = originalAccessTokenGlobal;
+        currentUserId = originalUserIdGlobal;
     }
 }
 

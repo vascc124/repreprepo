@@ -173,7 +173,7 @@ async function findMovieItem(imdbId, tmdbId) {
             delete altParams.TmdbId;
             delete altParams.UserId; // /Users/{userId}/Items doesn't need UserId in params
 
-            const data = await makeEmbyApiRequest(`${EMBY_URL}/Users/${userId}/Items`, altParams);
+            const data = await makeEmbyApiRequest(`${currentEmbyUrl}/Users/${currentUserId}/Items`, altParams);
             if (data?.Items?.length > 0) {
                 foundItem = data.Items.find(i => _isMatchingProviderId(i.ProviderIds, imdbId, tmdbId));
                  if (foundItem) {
@@ -382,10 +382,9 @@ async function getPlaybackStreams(embyItem, seriesName = null) {
  * Orchestrates the process of finding an Emby item (movie or episode) based on
  * an external ID and returning direct play stream information, using provided configuration.
  * @param {string} idOrExternalId - The Stremio-style ID (e.g., "tt12345", "tmdb12345:1:2").
- * @param {object} config - Configuration object.
- * @param {string} config.serverUrl - The Emby server URL.
- * @param {string} config.userId - The Emby user ID.
- * @param {string} config.accessToken - The Emby access token.
+ * @param {string} serverUrl - The Emby server URL.
+ * @param {string} userId - The Emby user ID.
+ * @param {string} accessToken - The Emby access token.
  * @returns {Promise<Array<object>|null>} An array of stream detail objects or null if unsuccessful.
  */
 async function getStream(idOrExternalId, { serverUrl, userId: newUserId, accessToken: newAccessToken }) {
@@ -417,21 +416,21 @@ async function getStream(idOrExternalId, { serverUrl, userId: newUserId, accessT
             console.error(`❌ Failed to parse input ID: ${idOrExternalId}`);
             return null;
         }
-        fullIdForLog = parsedId.baseId + (parsedId.itemType === ITEM_TYPE_EPISODE ? ` S${parsedId.seasonNumber}E${parsedId.episodeNumber}` : '');
+        const fullIdForLog = parsedId.baseId + (parsedId.itemType === ITEM_TYPE_EPISODE ? ` S${parsedId.seasonNumber}E${parsedId.episodeNumber}` : '');
 
         // 2. Find the Emby Item
         let embyItem = null;
         let parentSeriesName = null;
 
         if (parsedId.itemType === ITEM_TYPE_MOVIE) {
-            console.log(`🎬 Searching for Movie: ${parsedId.imdbId || parsedId.tmdbId} on ${embyConfig.serverUrl}`);
-            embyItem = await findMovieItem(parsedId.imdbId, parsedId.tmdbId, embyConfig);
+            console.log(`🎬 Searching for Movie: ${parsedId.imdbId || parsedId.tmdbId} on ${currentEmbyUrl}`);
+            embyItem = await findMovieItem(parsedId.imdbId, parsedId.tmdbId);
         } else if (parsedId.itemType === ITEM_TYPE_EPISODE) {
-            console.log(`📺 Searching for Series: ${parsedId.imdbId || parsedId.tmdbId} on ${embyConfig.serverUrl}`);
-            const seriesItem = await findSeriesItem(parsedId.imdbId, parsedId.tmdbId, embyConfig);
+            console.log(`📺 Searching for Series: ${parsedId.imdbId || parsedId.tmdbId} on ${currentEmbyUrl}`);
+            const seriesItem = await findSeriesItem(parsedId.imdbId, parsedId.tmdbId);
             if (seriesItem) {
                 parentSeriesName = seriesItem.Name;
-                embyItem = await findEpisodeItem(seriesItem, parsedId.seasonNumber, parsedId.episodeNumber, embyConfig);
+                embyItem = await findEpisodeItem(seriesItem, parsedId.seasonNumber, parsedId.episodeNumber);
             } else {
                  console.warn(`📭 Could not find parent series for ${fullIdForLog}, cannot find episode.`);
             }
@@ -440,7 +439,7 @@ async function getStream(idOrExternalId, { serverUrl, userId: newUserId, accessT
         // 3. Get Playback Streams if Item Found
         if (embyItem) {
              console.log(`🎯 Using final Emby item: ${embyItem.Name} (${embyItem.Id}), Type: ${embyItem.Type}`);
-            return await getPlaybackStreams(embyItem, parentSeriesName, embyConfig);
+            return await getPlaybackStreams(embyItem, parentSeriesName);
         } else {
              console.warn(`📭 No Emby match found for ${fullIdForLog} after all attempts.`);
             return null;

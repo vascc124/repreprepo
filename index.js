@@ -44,7 +44,7 @@ builder.defineStreamHandler(async (args) => {
 
   try {
     /* Get the stream details from Emby */
-    const streamDetailsArray = await emby.getStreamWithConfig(id, { 
+    const streamDetailsArray = await emby.getStream(id, { 
       serverUrl: emby_server_url, 
       userId: emby_user_id, 
       accessToken: emby_access_token 

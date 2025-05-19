@@ -308,43 +308,73 @@ async function findEpisodeItem(parentSeriesItem, seasonNumber, episodeNumber) {
  * @returns {Promise<Array<object>|null>} An array of stream detail objects or null if no suitable streams are found.
  */
 async function getPlaybackStreams(embyItem, seriesName = null) {
-    if (!embyItem || !embyItem.Id || !embyItem.MediaSources) {
-        console.warn("❌ Emby item ID or MediaSources missing, cannot get playback streams.");
+    if (!embyItem || !embyItem.Id) { // We only need embyItem.Id to make the PlaybackInfo call initially
+        console.warn("❌ Emby item ID missing, cannot get playback streams.");
+        return [];
+    }
+
+    const playbackInfoParams = { UserId: currentUserId };
+    const playbackInfoData = await makeEmbyApiRequest(
+        `${currentEmbyUrl}/Items/${embyItem.Id}/PlaybackInfo`,
+        playbackInfoParams
+    );
+
+    if (!playbackInfoData || !playbackInfoData.MediaSources || playbackInfoData.MediaSources.length === 0) {
+        console.warn(`❌ No MediaSources found from PlaybackInfo for item: ${embyItem.Name} (${embyItem.Id})`);
         return [];
     }
 
     const streamDetails = [];
 
-    for (const source of embyItem.MediaSources) {
-        if (!source.Id || !source.Path) continue; // Skip if no source ID or path
-
+    for (const source of playbackInfoData.MediaSources) { // Iterate over sources from PlaybackInfo
+        if (!source.Id) { // Path might not always be present for all source types, but Id is crucial
+            console.warn("⚠️ Skipping a media source due to missing ID:", source);
+            continue;
+        }
+        
+        // Construct DirectPlayUrl. Note: Some sources might not be direct play, Stremio might filter these later.
+        // The api_key is added for direct streams. For transcodes, Emby usually handles auth differently or embeds tokens.
+        // This addon focuses on DirectPlay, so api_key is relevant.
         const directPlayUrl = `${currentEmbyUrl}/Videos/${embyItem.Id}/${source.Id}/stream.${source.Container}?MediaSourceId=${source.Id}&Static=true&api_key=${currentAccessToken}`;
         
         let qualityTitle = "Direct Play"; // Default
-        if (source.Name) { // If a specific stream name/profile exists
+        // Use MediaSource.Name if available and more descriptive than constructed one.
+        if (source.Name && source.Name !== "Direct Play") { 
             qualityTitle = source.Name;
-        } else if (source.Type === 'Video') {
-            // Construct a more descriptive title if possible
-            const resolution = source.Width && source.Height ? `${source.Width}x${source.Height}` : '';
-            const videoCodec = source.Codecs && source.Codecs.find(c => c.Type === 'Video')?.ShortName || source.VideoCodec || '';
-            const audioCodec = source.Codecs && source.Codecs.find(c => c.Type === 'Audio')?.ShortName || source.AudioCodec || '';
+        } else if (source.Type === 'Video' || source.MediaStreams) { // source.Type might not be 'Video' for main source, check MediaStreams
+            const videoStream = source.MediaStreams?.find(ms => ms.Type === 'Video');
+            const audioStream = source.MediaStreams?.find(ms => ms.Type === 'Audio');
+            
+            const resolution = videoStream?.Height ? `${videoStream.Height}p` : (source.Width && source.Height ? `${source.Height}p` : ''); // Prioritize videoStream Height
+            const videoCodec = videoStream?.Codec || '';
+            const audioCodec = audioStream?.Codec || '';
             const container = source.Container || '';
 
-            let dynamicTitle = [];
-            if (resolution) dynamicTitle.push(resolution);
-            if (videoCodec) dynamicTitle.push(videoCodec.toUpperCase());
-            if (audioCodec) dynamicTitle.push(audioCodec.toUpperCase());
-            if (container) dynamicTitle.push(container.toUpperCase());
+            let dynamicTitleParts = [];
+            if (resolution) dynamicTitleParts.push(resolution);
             
-            if (dynamicTitle.length > 0) {
-                qualityTitle = dynamicTitle.join(' / ');
+            // Try to get more specific video info if available (e.g. HDR, DV)
+            if (videoStream?.VideoRangeType) dynamicTitleParts.push(videoStream.VideoRangeType);
+            else if (videoStream?.Profile) dynamicTitleParts.push(videoStream.Profile);
+            
+            if (videoCodec) dynamicTitleParts.push(videoCodec.toUpperCase());
+            if (audioCodec) dynamicTitleParts.push(audioCodec.toUpperCase());
+            if (container && !qualityTitle.includes(container.toUpperCase())) dynamicTitleParts.push(container.toUpperCase()); // Avoid duplicate container in title
+            
+            if (dynamicTitleParts.length > 0) {
+                qualityTitle = dynamicTitleParts.join(' / ');
+            } else if (source.Name) { // Fallback to source.Name if dynamic parts are empty
+                 qualityTitle = source.Name;
+            } else {
+                qualityTitle = "Direct Stream"; // More generic fallback
             }
         }
         
         // For series, prefix with series name and episode details if available
+        // embyItem here refers to the item for which we called PlaybackInfo (movie or episode)
         let streamNamePrefix = "";
         if (embyItem.Type === ITEM_TYPE_EPISODE) {
-            const seriesDisplayName = seriesName || embyItem.SeriesName || "Series";
+            const seriesDisplayName = seriesName || embyItem.SeriesName || "Series"; // seriesName is passed from _internalGetStreamLogic
             const seasonNum = embyItem.ParentIndexNumber !== undefined ? `S${String(embyItem.ParentIndexNumber).padStart(2, '0')}` : "";
             const episodeNum = embyItem.IndexNumber !== undefined ? `E${String(embyItem.IndexNumber).padStart(2, '0')}` : "";
             streamNamePrefix = `[${seriesDisplayName} ${seasonNum}${episodeNum}] `;
@@ -353,81 +383,29 @@ async function getPlaybackStreams(embyItem, seriesName = null) {
         }
 
         streamDetails.push({
-            embyItemId: embyItem.Id,
-            sourceId: source.Id,
+            embyItemId: embyItem.Id, // ID of the movie or episode
+            sourceId: source.Id,     // ID of this specific media source
             directPlayUrl: directPlayUrl,
-            qualityTitle: streamNamePrefix + qualityTitle, // Add prefix here
+            qualityTitle: streamNamePrefix + qualityTitle,
+            name: source.Name, // Stremio's 'name' field (usually provider name)
+            // title: streamNamePrefix + qualityTitle, // Stremio's 'title' field (more descriptive)
             container: source.Container,
-            size: source.Size, // Size in bytes
-            protocol: source.Protocol, // e.g., Http, File
-            isVideo: source.Type === 'Video',
-            name: source.Name // Original source name if present (e.g., "1080p H264 AAC")
+            size: source.Size, 
+            protocol: source.Protocol,
+            isVideo: source.IsVideo || (source.MediaStreams?.some(ms => ms.Type === 'Video')), // Check IsVideo or if it has video streams
+            // Additional details that might be useful for Stremio display or filtering
+            bitrate: source.Bitrate,
+            height: source.MediaStreams?.find(ms => ms.Type === 'Video')?.Height || source.Height,
+            width: source.MediaStreams?.find(ms => ms.Type === 'Video')?.Width || source.Width,
+            videoCodec: source.MediaStreams?.find(ms => ms.Type === 'Video')?.Codec,
+            audioCodec: source.MediaStreams?.find(ms => ms.Type === 'Audio')?.Codec,
+            isRemote: source.IsRemote, // Useful for Stremio's behaviorHints.bingeGroup
+            supportsDirectPlay: source.SupportsDirectPlay,
+            supportsDirectStream: source.SupportsDirectStream,
+            supportsTranscoding: source.SupportsTranscoding
         });
     }
     return streamDetails;
-}
-
-// --- Main Exported Function ---
-
-/**
- * Orchestrates the process of finding an Emby item (movie or episode) based on
- * an external ID and returning direct play stream information.
- * @param {string} idOrExternalId - The Stremio-style ID (e.g., "tt12345", "tmdb12345:1:2").
- * @returns {Promise<Array<object>|null>} An array of stream detail objects or null if unsuccessful.
- */
-async function getStream(idOrExternalId) {
-    let fullIdForLog = idOrExternalId || "undefined"; // For logging
-    try {
-        // 1. Ensure Authentication
-        await ensureAuth();
-        if (!currentAccessToken || !currentUserId) {
-            throw new Error("Authentication failed or was not established."); // Should be caught by ensureAuth, but double-check
-        }
-
-        // 2. Parse Input ID
-        const parsedId = parseMediaId(idOrExternalId);
-        if (!parsedId) {
-            console.error(`❌ Failed to parse input ID: ${idOrExternalId}`);
-            return null;
-        }
-        fullIdForLog = parsedId.baseId + (parsedId.itemType === ITEM_TYPE_EPISODE ? ` S${parsedId.seasonNumber}E${parsedId.episodeNumber}` : ''); // Update log ID
-
-        // 3. Find the Emby Item
-        let embyItem = null;
-        let parentSeriesName = null;
-
-        if (parsedId.itemType === ITEM_TYPE_MOVIE) {
-            console.log(`🎬 Searching for Movie: ${parsedId.imdbId || parsedId.tmdbId}`);
-            embyItem = await findMovieItem(parsedId.imdbId, parsedId.tmdbId);
-        } else if (parsedId.itemType === ITEM_TYPE_EPISODE) {
-            console.log(`📺 Searching for Series: ${parsedId.imdbId || parsedId.tmdbId}`);
-            const seriesItem = await findSeriesItem(parsedId.imdbId, parsedId.tmdbId);
-            if (seriesItem) {
-                parentSeriesName = seriesItem.Name; // Store name for stream details
-                embyItem = await findEpisodeItem(seriesItem, parsedId.seasonNumber, parsedId.episodeNumber);
-            } else {
-                 console.warn(`📭 Could not find parent series for ${fullIdForLog}, cannot find episode.`);
-            }
-        }
-
-        // 4. Get Playback Streams if Item Found
-        if (embyItem) {
-             console.log(`🎯 Using final Emby item: ${embyItem.Name} (${embyItem.Id}), Type: ${embyItem.Type}`);
-            return await getPlaybackStreams(embyItem, parentSeriesName);
-        } else {
-             console.warn(`📭 No Emby match found for ${fullIdForLog} after all attempts.`);
-            return null;
-        }
-
-    } catch (err) {
-        console.error(`❌ Unhandled error in getStream for ID ${fullIdForLog}:`, err.message, err.stack);
-        // If the error was due to auth failure during ensureAuth, token might be null now.
-        if (err.message.includes("authenticate")) {
-            currentAccessToken = null; // Ensure token is cleared if auth specifically failed
-             currentUserId = null;
-        }
-        return null; // Return null on any catastrophic failure
-    }
 }
 
 // This is the old getStream, refactored to be an internal function

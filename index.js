@@ -18,16 +18,37 @@ const builder = new addonBuilder({
   ],
   types: ["movie", "series"],
   idPrefixes: ["tt", "imdb:", "tmdb:"],
-  catalogs: [] // required syntactically
+  catalogs: [], // required syntactically
+  behaviorHints: {
+    configurable: true,
+    configurationRequired: true
+  },
+  config: [
+    { key: "emby_server_url", type: "text", title: "Emby Server URL (e.g., http://localhost:8096 or https://yourdomain.com/emby)", required: true },
+    { key: "emby_user_id", type: "text", title: "Emby User ID", required: true },
+    { key: "emby_access_token", type: "password", title: "Emby Access Token (or API Key)", required: true }
+  ]
 });
 
 // Stream handler
-builder.defineStreamHandler(async ({ type, id }) => {  
+builder.defineStreamHandler(async (args) => {  
+  const { type, id, config } = args;
   console.log(`📥 Received ${type} stream request for ID: ${id}`);
+
+  if (!config || !config.emby_server_url || !config.emby_user_id || !config.emby_access_token) {
+    console.warn("🔧 Configuration missing. Please configure the addon.");
+    return { streams: [] };
+  }
+
+  const { emby_server_url, emby_user_id, emby_access_token } = config;
 
   try {
     /* Get the stream details from Emby */
-    const streamDetailsArray = await emby.getStream(id);
+    const streamDetailsArray = await emby.getStreamWithConfig(id, { 
+      serverUrl: emby_server_url, 
+      userId: emby_user_id, 
+      accessToken: emby_access_token 
+    });
 
     /* If no stream details are returned, log an error */
     if (!streamDetailsArray || streamDetailsArray.length === 0) {

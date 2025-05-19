@@ -1,14 +1,20 @@
 const axios = require("axios");
-require('dotenv').config();
+// require('dotenv').config(); // No longer needed
 
 // --- Configuration ---
-const EMBY_URL = process.env.EMBY_URL;
-const USERNAME = process.env.EMBY_USERNAME;
-const PASSWORD = process.env.EMBY_PASSWORD;
+// const EMBY_URL = process.env.EMBY_URL; // Removed
+// const USERNAME = process.env.EMBY_USERNAME; // Removed
+// const PASSWORD = process.env.EMBY_PASSWORD; // Removed
 
-// --- State ---
-let accessToken = null;
-let userId = null;
+// --- State ---\n// These will be temporarily set by getStreamWithConfig
+let currentEmbyUrl = null;
+let currentAccessToken = null;
+let currentUserId = null;
+
+// Store original globals to restore them
+let originalEmbyUrlGlobal = null; 
+let originalAccessTokenGlobal = null;
+let originalUserIdGlobal = null;
 
 // --- Constants ---
 const ITEM_TYPE_MOVIE = 'Movie';
@@ -100,54 +106,6 @@ function parseMediaId(idOrExternalId) {
     return { baseId, itemType, seasonNumber, episodeNumber, imdbId, tmdbId };
 }
 
-// --- Authentication ---
-
-/**
- * Authenticates with the Emby server using credentials from environment variables.
- * Stores the access token and user ID globally upon success.
- * @throws {Error} If authentication fails.
- */
-async function authenticate() {
-    try {
-        const res = await axios.post(
-            `${EMBY_URL}/Users/AuthenticateByName`,
-            {
-                Username: USERNAME,
-                Pw: PASSWORD,
-            },
-            {
-                headers: {
-                    [HEADER_EMBY_AUTHORIZATION]: buildAuthorizationHeader(),
-                },
-            }
-        );
-
-        accessToken = res.data.AccessToken;
-        userId = res.data.User.Id;
-
-        console.log("✅ Authenticated to Emby.");
-    } catch (err) {
-        console.error("❌ Emby Authentication Failed:", err.response?.data || err.message);
-        // Clear potentially stale credentials
-        accessToken = null;
-        userId = null;
-        throw new Error("Failed to authenticate with Emby.");
-    }
-}
-
-/**
- * Ensures that a valid authentication token exists, authenticating if necessary.
- * @throws {Error} If authentication fails.
- */
-async function ensureAuth() {
-    if (!accessToken || !userId) {
-        console.log("🔧 No active Emby session found. Authenticating...");
-        await authenticate();
-    }
-    // Optional: Add a check here to verify if the existing token is still valid
-    // e.g., by making a simple ping request. If it fails, re-authenticate.
-}
-
 // --- Emby Item Finding ---
 
 /**
@@ -161,19 +119,16 @@ async function makeEmbyApiRequest(url, params = {}, method = 'get') {
     try {
         const response = await axios({
             method: method,
-            url: url,
-            headers: { [HEADER_EMBY_TOKEN]: accessToken },
+            url: url, // This will use the temporarily set currentEmbyUrl via the functions that call it
+            headers: { [HEADER_EMBY_TOKEN]: currentAccessToken }, // Use currentAccessToken
             params: params,
         });
         return response.data;
     } catch (err) {
-        // More specific error logging could be added here (e.g., status code)
         console.warn(`⚠️ API Request failed for ${url} with params ${JSON.stringify(params)}:`, err.message);
-        // If 401 Unauthorized, maybe trigger re-authentication?
         if (err.response?.status === 401) {
-             console.log("🔧 Detected Unauthorized (401). Clearing token for re-auth attempt.");
-             accessToken = null; // Clear token to force re-auth on next ensureAuth call
-             userId = null;
+             console.log("🔧 Detected Unauthorized (401). The provided access token might be invalid or expired.");
+             // No longer clearing global token here as it's managed by getStreamWithConfig
         }
         return null; // Indicate failure
     }
@@ -193,7 +148,7 @@ async function findMovieItem(imdbId, tmdbId) {
         Fields: DEFAULT_FIELDS,
         Limit: 10, // Limit results per query
         Filters: "IsNotFolder", // Important filter for movies
-        UserId: userId
+        UserId: currentUserId // Use currentUserId
     };
 
     // --- Strategy 1: Direct ID Lookup (/Items) ---
@@ -203,7 +158,7 @@ async function findMovieItem(imdbId, tmdbId) {
     else if (tmdbId) { directLookupParams.TmdbId = tmdbId; searchedIdField = "TmdbId"; }
 
     if (searchedIdField) {
-        const data = await makeEmbyApiRequest(`${EMBY_URL}/Items`, directLookupParams);
+        const data = await makeEmbyApiRequest(`${currentEmbyUrl}/Items`, directLookupParams);
         if (data?.Items?.length > 0) {
             foundItem = data.Items.find(i => _isMatchingProviderId(i.ProviderIds, imdbId, tmdbId));
              if (foundItem) {
@@ -230,7 +185,7 @@ async function findMovieItem(imdbId, tmdbId) {
             delete altParams.TmdbId;
             delete altParams.UserId; // /Users/{userId}/Items doesn't need UserId in params
 
-            const data = await makeEmbyApiRequest(`${EMBY_URL}/Users/${userId}/Items`, altParams);
+            const data = await makeEmbyApiRequest(`${currentEmbyUrl}/Users/${currentUserId}/Items`, altParams);
             if (data?.Items?.length > 0) {
                 foundItem = data.Items.find(i => _isMatchingProviderId(i.ProviderIds, imdbId, tmdbId));
                  if (foundItem) {
@@ -245,7 +200,6 @@ async function findMovieItem(imdbId, tmdbId) {
     return null; // Return null if not found after all attempts
 }
 
-
 /**
  * Attempts to find a series item in Emby.
  * @param {string|null} imdbId - The IMDb ID of the series.
@@ -258,7 +212,8 @@ async function findSeriesItem(imdbId, tmdbId) {
         IncludeItemTypes: ITEM_TYPE_SERIES,
         Recursive: true,
         Fields: "ProviderIds,Name,Id", // Only need these fields for series lookup
-        Limit: 5
+        Limit: 5,
+        UserId: currentUserId // Use currentUserId
     };
 
     // --- Strategy 1: Direct ID Lookup (/Users/{UserId}/Items) ---
@@ -266,7 +221,7 @@ async function findSeriesItem(imdbId, tmdbId) {
     if (imdbId) seriesLookupParams1.ImdbId = imdbId;
     else if (tmdbId) seriesLookupParams1.TmdbId = tmdbId;
 
-    const data1 = await makeEmbyApiRequest(`${EMBY_URL}/Users/${userId}/Items`, seriesLookupParams1);
+    const data1 = await makeEmbyApiRequest(`${currentEmbyUrl}/Users/${currentUserId}/Items`, seriesLookupParams1);
     if (data1?.Items?.length > 0) {
         foundSeries = data1.Items.find(s => _isMatchingProviderId(s.ProviderIds, imdbId, tmdbId));
         if (foundSeries) {
@@ -286,7 +241,7 @@ async function findSeriesItem(imdbId, tmdbId) {
             delete seriesLookupParams2.ImdbId; // Remove specific ID params
             delete seriesLookupParams2.TmdbId;
 
-            const data2 = await makeEmbyApiRequest(`${EMBY_URL}/Users/${userId}/Items`, seriesLookupParams2);
+            const data2 = await makeEmbyApiRequest(`${currentEmbyUrl}/Users/${currentUserId}/Items`, seriesLookupParams2);
             if (data2?.Items?.length > 0) {
                 foundSeries = data2.Items.find(s => _isMatchingProviderId(s.ProviderIds, imdbId, tmdbId));
                  if (foundSeries) {
@@ -311,48 +266,38 @@ async function findSeriesItem(imdbId, tmdbId) {
  * @returns {Promise<object|null>} The found Emby episode item or null.
  */
 async function findEpisodeItem(parentSeriesItem, seasonNumber, episodeNumber) {
-    // 1. Get Seasons for the Series
-    const seasonsParams = { UserId: userId, Fields: "Id,IndexNumber,Name" };
-    const seasonsData = await makeEmbyApiRequest(`${EMBY_URL}/Shows/${parentSeriesItem.Id}/Seasons`, seasonsParams);
-
-    if (!seasonsData?.Items?.length > 0) {
-        console.warn(`❌ No seasons found for series: ${parentSeriesItem.Name} (${parentSeriesItem.Id})`);
+    if (!parentSeriesItem || !parentSeriesItem.Id) {
+        console.warn("❌ Cannot find episode without parent series item ID.");
         return null;
     }
-
-    // 2. Find the Target Season
-    const targetSeason = seasonsData.Items.find(s => s.IndexNumber === seasonNumber);
-    if (!targetSeason) {
-        console.warn(`❌ Season ${seasonNumber} not found for series: ${parentSeriesItem.Name}`);
-        return null;
-    }
-
-    // 3. Get Episodes for the Target Season
-    console.log(`🔎 Fetching episodes for ${parentSeriesItem.Name} S${seasonNumber} (Season ID: ${targetSeason.Id})`);
-    const episodesParams = {
-        SeasonId: targetSeason.Id,
-        UserId: userId,
-        Fields: DEFAULT_FIELDS // Request all needed fields for the episode
+    const params = {
+        ParentId: parentSeriesItem.Id,
+        SeasonNumber: seasonNumber,
+        IndexNumber: episodeNumber, // Emby uses IndexNumber for episode
+        IncludeItemTypes: ITEM_TYPE_EPISODE,
+        Recursive: true,
+        Fields: DEFAULT_FIELDS,
+        UserId: currentUserId, // Use currentUserId
+        Limit: 1
     };
-    const episodesData = await makeEmbyApiRequest(`${EMBY_URL}/Shows/${parentSeriesItem.Id}/Episodes`, episodesParams);
 
-    if (!episodesData?.Items?.length > 0) {
-        console.warn(`❌ No episodes found for season ${seasonNumber} in series: ${parentSeriesItem.Name}`);
-        return null;
+    // Use currentEmbyUrl
+    const data = await makeEmbyApiRequest(`${currentEmbyUrl}/Items`, params);
+
+    if (data?.Items?.length > 0) {
+        // Assuming the first item is the correct one if multiple are returned (should be rare with specific S/E numbers)
+        const episodeItem = data.Items[0];
+        // Double check ParentIndexNumber (season) and IndexNumber (episode)
+        if (episodeItem.ParentIndexNumber === seasonNumber && episodeItem.IndexNumber === episodeNumber) {
+            console.log(`🎞️ Found episode: S${seasonNumber}E${episodeNumber} - ${episodeItem.Name}`);
+            return episodeItem;
+        } else {
+            console.warn(`Found episode item for S${seasonNumber}E${episodeNumber}, but season/episode numbers didn't match Emby item: Emby S${episodeItem.ParentIndexNumber}E${episodeItem.IndexNumber}`);
+        }
     }
-
-    // 4. Find the Target Episode
-    const targetEpisode = episodesData.Items.find(ep => ep.IndexNumber === episodeNumber && ep.ParentIndexNumber === seasonNumber);
-
-    if (!targetEpisode) {
-        console.warn(`❌ Episode S${seasonNumber}E${episodeNumber} not found in series: ${parentSeriesItem.Name}`);
-        return null;
-    }
-
-     console.log(`🎯 Found episode: ${targetEpisode.Name} (S${targetEpisode.ParentIndexNumber}E${targetEpisode.IndexNumber}, ID: ${targetEpisode.Id})`);
-    return targetEpisode;
+    console.log(`📭 No Emby episode match found for S${seasonNumber}E${episodeNumber} in series ${parentSeriesItem.Name}.`);
+    return null;
 }
-
 
 // --- Stream Generation ---
 
@@ -363,75 +308,64 @@ async function findEpisodeItem(parentSeriesItem, seasonNumber, episodeNumber) {
  * @returns {Promise<Array<object>|null>} An array of stream detail objects or null if no suitable streams are found.
  */
 async function getPlaybackStreams(embyItem, seriesName = null) {
-    const playbackInfoParams = { UserId: userId};
-    const playbackInfoData = await makeEmbyApiRequest(
-        `${EMBY_URL}/Items/${embyItem.Id}/PlaybackInfo`,
-        playbackInfoParams
-    );
-
-    if (!playbackInfoData?.MediaSources?.length > 0) {
-        console.warn("❌ No MediaSources found for item:", embyItem.Name, `(${embyItem.Id})`);
-        return null;
+    if (!embyItem || !embyItem.Id || !embyItem.MediaSources) {
+        console.warn("❌ Emby item ID or MediaSources missing, cannot get playback streams.");
+        return [];
     }
 
-    const streamDetailsArray = [];
+    const streamDetails = [];
 
-    for (const source of playbackInfoData.MediaSources) {
+    for (const source of embyItem.MediaSources) {
+        if (!source.Id || !source.Path) continue; // Skip if no source ID or path
+
+        const directPlayUrl = `${currentEmbyUrl}/Videos/${embyItem.Id}/${source.Id}/stream.${source.Container}?MediaSourceId=${source.Id}&Static=true&api_key=${currentAccessToken}`;
         
-      const videoStream = source.MediaStreams?.find(ms => ms.Type === 'Video');
-      const audioStream = source.MediaStreams?.find(ms => ms.Type === 'Audio');
-
-      const directPlayUrl = `${EMBY_URL}/Videos/${embyItem.Id}/stream.${source.Container}?MediaSourceId=${source.Id}&Static=true&api_key=${accessToken}&DeviceId=stremio-addon-device-id`; // Ensure DeviceId is appropriate
-
-      // Build Quality Title (same logic as original)
-      let qualityTitle = "";
-        if (videoStream) {
-          qualityTitle += videoStream.DisplayTitle || "";
-          if (videoStream.Width && videoStream.Height) {
-              if (!qualityTitle.toLowerCase().includes(videoStream.Height + "p") && !qualityTitle.toLowerCase().includes(videoStream.Width + "x" + videoStream.Height)) {
-                  qualityTitle = (qualityTitle ? qualityTitle + " " : "") + `${videoStream.Height}p`;
-              }
-          }
-          if (videoStream.Codec) {
-              if (!qualityTitle.toLowerCase().includes(videoStream.Codec.toLowerCase())) {
-                    qualityTitle = (qualityTitle ? qualityTitle + " " : "") + videoStream.Codec.toUpperCase();
-              }
-          }
-      } else if (source.Container) {
-          qualityTitle = source.Container.toUpperCase();
-      }
-      if (source.Name && !qualityTitle) {
+        let qualityTitle = "Direct Play"; // Default
+        if (source.Name) { // If a specific stream name/profile exists
             qualityTitle = source.Name;
-      }
-      qualityTitle = qualityTitle || 'Direct Play'; // Fallback title
+        } else if (source.Type === 'Video') {
+            // Construct a more descriptive title if possible
+            const resolution = source.Width && source.Height ? `${source.Width}x${source.Height}` : '';
+            const videoCodec = source.Codecs && source.Codecs.find(c => c.Type === 'Video')?.ShortName || source.VideoCodec || '';
+            const audioCodec = source.Codecs && source.Codecs.find(c => c.Type === 'Audio')?.ShortName || source.AudioCodec || '';
+            const container = source.Container || '';
 
-      streamDetailsArray.push({
-          directPlayUrl: directPlayUrl,
-          itemName: embyItem.Name,
-          seriesName: seriesName, // Pass the series name if available
-          // Use season/episode numbers directly from the embyItem if it's an episode
-          seasonNumber: embyItem.Type === ITEM_TYPE_EPISODE ? embyItem.ParentIndexNumber : null,
-          episodeNumber: embyItem.Type === ITEM_TYPE_EPISODE ? embyItem.IndexNumber : null,
-          itemId: embyItem.Id,
-          mediaSourceId: source.Id,
-          container: source.Container,
-          videoCodec: videoStream?.Codec || source.VideoCodec || null, // Prefer stream info
-          audioCodec: audioStream?.Codec || null, // Prefer stream info
-          qualityTitle: qualityTitle,
-          embyUrlBase: EMBY_URL,
-          apiKey: accessToken // Exposing API key here - ensure this is acceptable for the client
-      });
-      
+            let dynamicTitle = [];
+            if (resolution) dynamicTitle.push(resolution);
+            if (videoCodec) dynamicTitle.push(videoCodec.toUpperCase());
+            if (audioCodec) dynamicTitle.push(audioCodec.toUpperCase());
+            if (container) dynamicTitle.push(container.toUpperCase());
+            
+            if (dynamicTitle.length > 0) {
+                qualityTitle = dynamicTitle.join(' / ');
+            }
+        }
+        
+        // For series, prefix with series name and episode details if available
+        let streamNamePrefix = "";
+        if (embyItem.Type === ITEM_TYPE_EPISODE) {
+            const seriesDisplayName = seriesName || embyItem.SeriesName || "Series";
+            const seasonNum = embyItem.ParentIndexNumber !== undefined ? `S${String(embyItem.ParentIndexNumber).padStart(2, '0')}` : "";
+            const episodeNum = embyItem.IndexNumber !== undefined ? `E${String(embyItem.IndexNumber).padStart(2, '0')}` : "";
+            streamNamePrefix = `[${seriesDisplayName} ${seasonNum}${episodeNum}] `;
+        } else if (embyItem.Type === ITEM_TYPE_MOVIE && embyItem.Name) {
+            streamNamePrefix = `[${embyItem.Name}] `;
+        }
+
+        streamDetails.push({
+            embyItemId: embyItem.Id,
+            sourceId: source.Id,
+            directPlayUrl: directPlayUrl,
+            qualityTitle: streamNamePrefix + qualityTitle, // Add prefix here
+            container: source.Container,
+            size: source.Size, // Size in bytes
+            protocol: source.Protocol, // e.g., Http, File
+            isVideo: source.Type === 'Video',
+            name: source.Name // Original source name if present (e.g., "1080p H264 AAC")
+        });
     }
-
-    if (streamDetailsArray.length === 0) {
-        console.warn(`❌ No direct playable sources found for item: ${embyItem.Name} (${embyItem.Id})`);
-        return null;
-    }
-
-    return streamDetailsArray;
+    return streamDetails;
 }
-
 
 // --- Main Exported Function ---
 
@@ -446,7 +380,7 @@ async function getStream(idOrExternalId) {
     try {
         // 1. Ensure Authentication
         await ensureAuth();
-        if (!accessToken || !userId) {
+        if (!currentAccessToken || !currentUserId) {
             throw new Error("Authentication failed or was not established."); // Should be caught by ensureAuth, but double-check
         }
 
@@ -489,14 +423,126 @@ async function getStream(idOrExternalId) {
         console.error(`❌ Unhandled error in getStream for ID ${fullIdForLog}:`, err.message, err.stack);
         // If the error was due to auth failure during ensureAuth, token might be null now.
         if (err.message.includes("authenticate")) {
-            accessToken = null; // Ensure token is cleared if auth specifically failed
-             userId = null;
+            currentAccessToken = null; // Ensure token is cleared if auth specifically failed
+             currentUserId = null;
         }
         return null; // Return null on any catastrophic failure
     }
 }
 
-// --- Exports ---
+// This is the old getStream, refactored to be an internal function
+async function _internalGetStreamLogic(idOrExternalId) {
+    console.log(`🎞️ Processing Emby ID (internal): ${idOrExternalId}`);
+
+    const parsedId = parseMediaId(idOrExternalId);
+    if (!parsedId) {
+        console.warn("❌ Could not parse media ID:", idOrExternalId);
+        return [];
+    }
+
+    const { itemType, imdbId, tmdbId, seasonNumber, episodeNumber } = parsedId;
+    let embyItem = null;
+    let seriesForEpisodeName = null; // To pass series name for better episode stream titles
+
+    try {
+        if (itemType === ITEM_TYPE_MOVIE) {
+            embyItem = await findMovieItem(imdbId, tmdbId);
+        } else if (itemType === ITEM_TYPE_EPISODE) {
+            const seriesItem = await findSeriesItem(imdbId, tmdbId);
+            if (seriesItem) {
+                seriesForEpisodeName = seriesItem.Name; // Store series name
+                embyItem = await findEpisodeItem(seriesItem, seasonNumber, episodeNumber);
+            } else {
+                console.warn(`📭 Series not found for episode request (IMDb: ${imdbId}, TMDb: ${tmdbId}).`);
+            }
+        } else {
+            console.warn(`Unsupported item type: ${itemType} for ID: ${idOrExternalId}`);
+            return [];
+        }
+
+        if (!embyItem) {
+            console.warn(`📭 Emby item not found for ${itemType} with ID: ${idOrExternalId}`);
+            return [];
+        }
+
+        const playbackInfo = await getPlaybackStreams(embyItem, seriesForEpisodeName);
+        console.log(`🎥 Found ${playbackInfo.length} playback stream(s) for ${embyItem.Name}`);
+        return playbackInfo;
+
+    } catch (err) {
+        console.error(`❌ Error processing Emby ID ${idOrExternalId}:`, err);
+        return [];
+    }
+}
+
+// --- Public API ---
+
+/**
+ * Fetches stream details from Emby based on an IMDb or TMDb ID, using configured credentials.
+ * @param {string} idOrExternalId - The Stremio-style ID (e.g., "tt12345", "tmdb12345", "tt12345:1:2").
+ * @param {object} config - Configuration object.
+ * @param {string} config.serverUrl - The Emby server URL.
+ * @param {string} config.userId - The Emby User ID.
+ * @param {string} config.accessToken - The Emby Access Token.
+ * @returns {Promise<Array<object>>} A promise that resolves to an array of stream detail objects.
+ */
+async function getStreamWithConfig(idOrExternalId, { serverUrl, userId: newUserId, accessToken: newAccessToken }) {
+    // Backup original globals
+    originalEmbyUrlGlobal = currentEmbyUrl;
+    originalAccessTokenGlobal = currentAccessToken;
+    originalUserIdGlobal = currentUserId;
+
+    // Set globals from config for this request
+    currentEmbyUrl = serverUrl;
+    currentAccessToken = newAccessToken;
+    currentUserId = newUserId;
+
+    console.log(`🔧 Using Emby config - URL: ${currentEmbyUrl}, UserID: ${currentUserId}`);
+
+    if (!currentEmbyUrl || !currentUserId || !currentAccessToken) {
+        console.error("❌ Emby server URL, User ID, or Access Token is missing in the configuration.");
+        // Restore globals before returning
+        currentEmbyUrl = originalEmbyUrlGlobal;
+        currentAccessToken = originalAccessTokenGlobal;
+        currentUserId = originalUserIdGlobal;
+        return [];
+    }
+    
+    try {
+        // No explicit authentication call needed here as we have the token.
+        // The makeEmbyApiRequest function will use currentAccessToken.
+        // The findItem functions will use currentUserId and currentEmbyUrl.
+        
+        const streams = await _internalGetStreamLogic(idOrExternalId);
+        return streams;
+    } catch (error) {
+        console.error("❌ Error in getStreamWithConfig:", error);
+        return [];
+    } finally {
+        // Restore original globals
+        currentEmbyUrl = originalEmbyUrlGlobal;
+        currentAccessToken = originalAccessTokenGlobal;
+        currentUserId = originalUserIdGlobal;
+        console.log("🔧 Emby config restored to original state (if any).");
+    }
+}
+
 module.exports = {
-    getStream,
+    getStreamWithConfig, // Expose the new function
+    // getStream // Do not expose the old getStream directly if it's fully replaced
 };
+
+// --- Legacy/Removed Authentication Logic ---
+// /**
+//  * Authenticates with the Emby server using credentials from environment variables.
+//  * Stores the access token and user ID globally upon success.
+//  * @throws {Error} If authentication fails.
+//  */
+// async function authenticate() { ... } // Removed
+//
+// /**
+//  * Ensures that a valid authentication token exists, authenticating if necessary.
+//  * @throws {Error} If authentication fails.
+//  */
+// async function ensureAuth() { ... } // Removed
+  

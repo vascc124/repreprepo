@@ -303,78 +303,76 @@ async function findEpisodeItem(parentSeriesItem, seasonNumber, episodeNumber) {
 
 /**
  * Gets playback information for an Emby item and generates direct play stream URLs.
- * @param {object} embyItem - The Emby movie or episode item (must have Id, Name, Type).
+ * @param {object} embyItem - The Emby movie or episode item (must have Id, Name, Type, MediaSources).
  * @param {string|null} [seriesName=null] - Optional: The name of the series if item is an episode.
- * @returns {Promise<Array<object>|null>} An array of stream detail objects or null if no suitable streams are found.
+ * @returns {Promise<Array<object>>} An array of stream detail objects.
  */
 async function getPlaybackStreams(embyItem, seriesName = null) {
-    if (!embyItem || !embyItem.Id) { // We only need embyItem.Id to make the PlaybackInfo call initially
-        console.warn("❌ Emby item ID missing, cannot get playback streams.");
-        return [];
-    }
-
-    const playbackInfoParams = { UserId: currentUserId };
-    const playbackInfoData = await makeEmbyApiRequest(
-        `${currentEmbyUrl}/Items/${embyItem.Id}/PlaybackInfo`,
-        playbackInfoParams
-    );
-
-    if (!playbackInfoData || !playbackInfoData.MediaSources || playbackInfoData.MediaSources.length === 0) {
-        console.warn(`❌ No MediaSources found from PlaybackInfo for item: ${embyItem.Name} (${embyItem.Id})`);
+    if (!embyItem || !embyItem.Id || !embyItem.MediaSources) {
+        console.warn("❌ Emby item ID or MediaSources missing, cannot get playback streams.");
         return [];
     }
 
     const streamDetails = [];
 
-    for (const source of playbackInfoData.MediaSources) { // Iterate over sources from PlaybackInfo
-        if (!source.Id) { // Path might not always be present for all source types, but Id is crucial
-            console.warn("⚠️ Skipping a media source due to missing ID:", source);
+    for (const source of embyItem.MediaSources) {
+        // source.Id is crucial. source.Path might not always be present or necessary for direct play URL construction if container and ID are known.
+        if (!source.Id || !source.Container) { 
+            console.warn("⚠️ Skipping a media source due to missing ID or Container:", source);
             continue;
         }
-        
-        // Construct DirectPlayUrl. Note: Some sources might not be direct play, Stremio might filter these later.
-        // The api_key is added for direct streams. For transcodes, Emby usually handles auth differently or embeds tokens.
-        // This addon focuses on DirectPlay, so api_key is relevant.
+
         const directPlayUrl = `${currentEmbyUrl}/Videos/${embyItem.Id}/${source.Id}/stream.${source.Container}?MediaSourceId=${source.Id}&Static=true&api_key=${currentAccessToken}`;
         
         let qualityTitle = "Direct Play"; // Default
-        // Use MediaSource.Name if available and more descriptive than constructed one.
-        if (source.Name && source.Name !== "Direct Play") { 
+        if (source.Name && source.Name.toLowerCase() !== 'direct play' && source.Name.toLowerCase() !== 'directstream') { 
             qualityTitle = source.Name;
-        } else if (source.Type === 'Video' || source.MediaStreams) { // source.Type might not be 'Video' for main source, check MediaStreams
+        } else if (source.Type === 'Video' || (source.MediaStreams && source.MediaStreams.some(ms => ms.Type === 'Video'))) {
             const videoStream = source.MediaStreams?.find(ms => ms.Type === 'Video');
             const audioStream = source.MediaStreams?.find(ms => ms.Type === 'Audio');
             
-            const resolution = videoStream?.Height ? `${videoStream.Height}p` : (source.Width && source.Height ? `${source.Height}p` : ''); // Prioritize videoStream Height
-            const videoCodec = videoStream?.Codec || '';
-            const audioCodec = audioStream?.Codec || '';
-            const container = source.Container || '';
-
             let dynamicTitleParts = [];
-            if (resolution) dynamicTitleParts.push(resolution);
+
+            if (videoStream?.Height) {
+                dynamicTitleParts.push(`${videoStream.Height}p`);
+            } else if (source.Height) {
+                 dynamicTitleParts.push(`${source.Height}p`);
+            }
+
+            if (videoStream?.VideoRangeType) {
+                dynamicTitleParts.push(videoStream.VideoRangeType);
+            } else if (videoStream?.Profile && videoStream.Profile !== 'Unknown'){
+                // Only add profile if it's not a generic 'Unknown'
+                // Common profiles: Main, High, Main 10, etc.
+                if (!videoStream.Profile.toLowerCase().includes('unknown')) {
+                    dynamicTitleParts.push(videoStream.Profile);
+                }
+            }
+
+            if (videoStream?.Codec) {
+                dynamicTitleParts.push(videoStream.Codec.toUpperCase());
+            }
             
-            // Try to get more specific video info if available (e.g. HDR, DV)
-            if (videoStream?.VideoRangeType) dynamicTitleParts.push(videoStream.VideoRangeType);
-            else if (videoStream?.Profile) dynamicTitleParts.push(videoStream.Profile);
+            if (audioStream?.Codec) {
+                dynamicTitleParts.push(audioStream.Codec.toUpperCase());
+            }
             
-            if (videoCodec) dynamicTitleParts.push(videoCodec.toUpperCase());
-            if (audioCodec) dynamicTitleParts.push(audioCodec.toUpperCase());
-            if (container && !qualityTitle.includes(container.toUpperCase())) dynamicTitleParts.push(container.toUpperCase()); // Avoid duplicate container in title
+            // Add container if it's not already obviously part of the quality title (e.g. from source.Name)
+            if (source.Container && qualityTitle.toLowerCase().indexOf(source.Container.toLowerCase()) === -1) {
+                dynamicTitleParts.push(source.Container.toUpperCase());
+            }
             
             if (dynamicTitleParts.length > 0) {
                 qualityTitle = dynamicTitleParts.join(' / ');
-            } else if (source.Name) { // Fallback to source.Name if dynamic parts are empty
-                 qualityTitle = source.Name;
             } else {
-                qualityTitle = "Direct Stream"; // More generic fallback
+                // Fallback if no dynamic parts were generated but it's a video
+                qualityTitle = source.Container ? `${source.Container.toUpperCase()} Video` : "Direct Stream";
             }
         }
         
-        // For series, prefix with series name and episode details if available
-        // embyItem here refers to the item for which we called PlaybackInfo (movie or episode)
         let streamNamePrefix = "";
         if (embyItem.Type === ITEM_TYPE_EPISODE) {
-            const seriesDisplayName = seriesName || embyItem.SeriesName || "Series"; // seriesName is passed from _internalGetStreamLogic
+            const seriesDisplayName = seriesName || embyItem.SeriesName || "Series";
             const seasonNum = embyItem.ParentIndexNumber !== undefined ? `S${String(embyItem.ParentIndexNumber).padStart(2, '0')}` : "";
             const episodeNum = embyItem.IndexNumber !== undefined ? `E${String(embyItem.IndexNumber).padStart(2, '0')}` : "";
             streamNamePrefix = `[${seriesDisplayName} ${seasonNum}${episodeNum}] `;
@@ -383,26 +381,26 @@ async function getPlaybackStreams(embyItem, seriesName = null) {
         }
 
         streamDetails.push({
-            embyItemId: embyItem.Id, // ID of the movie or episode
-            sourceId: source.Id,     // ID of this specific media source
+            embyItemId: embyItem.Id,
+            sourceId: source.Id,
             directPlayUrl: directPlayUrl,
-            qualityTitle: streamNamePrefix + qualityTitle,
-            name: source.Name, // Stremio's 'name' field (usually provider name)
-            // title: streamNamePrefix + qualityTitle, // Stremio's 'title' field (more descriptive)
+            name: "Emby", // Provider name
+            title: streamNamePrefix + qualityTitle, // Descriptive title for Stremio UI
+            qualityTitle: qualityTitle, // Internal tracking or less verbose quality
             container: source.Container,
-            size: source.Size, 
+            size: source.Size,
             protocol: source.Protocol,
-            isVideo: source.IsVideo || (source.MediaStreams?.some(ms => ms.Type === 'Video')), // Check IsVideo or if it has video streams
-            // Additional details that might be useful for Stremio display or filtering
-            bitrate: source.Bitrate,
-            height: source.MediaStreams?.find(ms => ms.Type === 'Video')?.Height || source.Height,
-            width: source.MediaStreams?.find(ms => ms.Type === 'Video')?.Width || source.Width,
-            videoCodec: source.MediaStreams?.find(ms => ms.Type === 'Video')?.Codec,
-            audioCodec: source.MediaStreams?.find(ms => ms.Type === 'Audio')?.Codec,
-            isRemote: source.IsRemote, // Useful for Stremio's behaviorHints.bingeGroup
-            supportsDirectPlay: source.SupportsDirectPlay,
-            supportsDirectStream: source.SupportsDirectStream,
-            supportsTranscoding: source.SupportsTranscoding
+            isVideo: source.Type === 'Video' || (source.MediaStreams && source.MediaStreams.some(ms => ms.Type === 'Video')),
+            // Including more details from 'source' and 'videoStream' as they might be useful
+            bitrate: source.Bitrate || videoStream?.Bitrate,
+            height: videoStream?.Height || source.Height,
+            width: videoStream?.Width || source.Width,
+            videoCodec: videoStream?.Codec,
+            audioCodec: audioStream?.Codec,
+            isRemote: source.IsRemote,
+            supportsDirectPlay: source.SupportsDirectPlay, // These fields are on PlaybackInfo sources, may not be on item.MediaSources
+            supportsDirectStream: source.SupportsDirectStream, // but Stremio might look for them.
+            supportsTranscoding: source.SupportsTranscoding 
         });
     }
     return streamDetails;

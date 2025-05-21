@@ -24,9 +24,9 @@ const builder = new addonBuilder({
     configurationRequired: true
   },
   config: [
-    { key: "emby_server_url", type: "text", title: "Emby Server URL (e.g., http://abc@xyz.com:443)", required: true },
-    { key: "emby_user_id", type: "text", title: "Emby User ID", required: true },
-    { key: "emby_access_token", type: "password", title: "Emby Access Token (or API Key)", required: true }
+    { key: "server_url", type: "text", title: "Emby Server URL (e.g., http://abcxyz.com:443)", required: true },
+    { key: "user_id", type: "text", title: "Emby User ID", required: true },
+    { key: "access_token", type: "password", title: "Emby Access Token (or API Key)", required: true }
   ]
 });
 
@@ -35,20 +35,14 @@ builder.defineStreamHandler(async (args) => {
   const { type, id, config } = args;
   //console.log(`📥 Received ${type} stream request for ID: ${id}`);
 
-  if (!config || !config.emby_server_url || !config.emby_user_id || !config.emby_access_token) {
+  if (!config || !config.server_url || !config.user_id || !config.access_token) {
     console.warn("🔧 Configuration missing. Please configure the addon.");
     return { streams: [] };
   }
 
-  const { emby_server_url, emby_user_id, emby_access_token } = config;
-
   try {
     /* Get the stream details from Emby */
-    const streamDetailsArray = await emby.getStream(id, { 
-      serverUrl: emby_server_url, 
-      userId: emby_user_id, 
-      accessToken: emby_access_token 
-    });
+    const streamDetailsArray = await emby.getStream(id, config);
 
     /* If no stream details are returned, log an error */
     if (!streamDetailsArray || streamDetailsArray.length === 0) {

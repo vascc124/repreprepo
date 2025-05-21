@@ -24,9 +24,9 @@ const builder = new addonBuilder({
     configurationRequired: true
   },
   config: [
-    { key: "server_url", type: "text", title: "Emby Server URL (e.g., http://abcxyz.com:443)", required: true },
-    { key: "user_id", type: "text", title: "Emby User ID", required: true },
-    { key: "access_token", type: "password", title: "Emby Access Token (or API Key)", required: true }
+    { key: "serverUrl", type: "text", title: "Emby Server URL (e.g., http://abcxyz.com:443)", required: true },
+    { key: "userId", type: "text", title: "Emby User ID", required: true },
+    { key: "accessToken", type: "password", title: "Emby Access Token (or API Key)", required: true }
   ]
 });
 
@@ -35,7 +35,7 @@ builder.defineStreamHandler(async (args) => {
   const { type, id, config } = args;
   //console.log(`📥 Received ${type} stream request for ID: ${id}`);
 
-  if (!config || !config.server_url || !config.user_id || !config.access_token) {
+  if (!config || !config.serverUrl || !config.userId || !config.accessToken) {
     console.warn("🔧 Configuration missing. Please configure the addon.");
     return { streams: [] };
   }

@@ -2,7 +2,7 @@ const { addonBuilder, serveHTTP } = require("stremio-addon-sdk");
 const emby = require("./embyClient");
 require('dotenv').config();
 
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 7000;
 
 const builder = new addonBuilder({
   id: "org.streambridge.embyresolver",   

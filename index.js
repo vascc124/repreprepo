@@ -8,7 +8,7 @@ const builder = new addonBuilder({
   id: "org.streambridge.embyresolver",   
   version: "1.0.0",
   name: "StreamBridge: Emby to Stremio",
-  description: "Streams media from your personal or shared Embyserver using IMDb/TMDB IDs.",
+  description: "Streams media from your personal or shared Embyserver using IMDb/TMDB IDs. Get your Emby Access Token and User ID by opening /helper.html in your browser.",
   resources: [
     {
       name: "stream",
@@ -18,16 +18,31 @@ const builder = new addonBuilder({
   ],
   types: ["movie", "series"],
   idPrefixes: ["tt", "imdb:", "tmdb:"],
-  catalogs: [] // required syntactically
+  catalogs: [], // required syntactically
+  behaviorHints: {
+    configurable: true,
+    configurationRequired: true
+  },
+  config: [
+    { key: "serverUrl", type: "text", title: "Emby Server URL (e.g., http://abcxyz.com:443)", required: true },
+    { key: "userId", type: "text", title: "Emby User ID", required: true },
+    { key: "accessToken", type: "password", title: "Emby Access Token (or API Key)", required: true }
+  ]
 });
 
 // Stream handler
-builder.defineStreamHandler(async ({ type, id }) => {  
-  console.log(`📥 Received ${type} stream request for ID: ${id}`);
+builder.defineStreamHandler(async (args) => {  
+  const { type, id, config } = args;
+  //console.log(`📥 Received ${type} stream request for ID: ${id}`);
+
+  if (!config || !config.serverUrl || !config.userId || !config.accessToken) {
+    console.warn("🔧 Configuration missing. Please configure the addon.");
+    return { streams: [] };
+  }
 
   try {
     /* Get the stream details from Emby */
-    const streamDetailsArray = await emby.getStream(id);
+    const streamDetailsArray = await emby.getStream(id, config);
 
     /* If no stream details are returned, log an error */
     if (!streamDetailsArray || streamDetailsArray.length === 0) {

@@ -1,17 +1,17 @@
 # StreamBridge: Emby to Stremio
 
-**StreamBridge** is an unofficial Stremio addon that allows you to stream content from your personal Emby server using IMDb or TMDb IDs. This addon acts as a resolver, responding to stream requests in Stremio with direct play links from your Emby library.
+**StreamBridge** is an unofficial Stremio addon that allows you to stream content from your personal Emby server using IMDb or TMDb IDs. This addon acts as a resolver, responding to stream requests in Stremio with direct play links from your Emby library. This branch introduces a **configuration flow**, allowing you to input Emby server details directly from the Stremio interface — no `.env` required.
 
-> ⚠️ This addon does **not** expose your full Emby catalog to Stremio. It works as a resolver only: when a movie or series is clicked in Stremio (and matches your Emby library), this addon returns a playable stream URL.
+> ⚠️ **Note:** This branch only works when the addon is deployed to a public URL (e.g., on Render or Railway). **Local hosting will not work in the Stremio client. Use `main` branch for local deployment**
 
 ---
 
 ## 🔧 Features
 
+- ✅ No `.env` setup — user config entered in Stremio
 - ✅ Direct streaming from Emby to Stremio
 - ✅ Supports both movies and TV episodes
 - ✅ Matches by IMDb or TMDb ID (e.g., `tt1234567`, `tmdb:98765`)
-- ✅ Private use only – no external exposure of your library
 - ❌ No public catalog or metadata – uses Cinemeta defaults
 
 ---
@@ -25,83 +25,62 @@
 
 ---
 
-## 🚀 Getting Started
+## 🌐 Deploying the Addon
 
-### 1. Clone this repo
+### Option 1: Deploy to [Render](https://render.com)
 
-```
-git clone https://github.com/h4harsimran/streambridge.git
-cd streambridge
-```
+1. Fork this repository  
+   👉 https://github.com/h4harsimran/streambridge
 
-### 2. Install dependencies
+2. Go to [Render Node.js deployment](https://render.com/docs/deploy-node)
 
-```
-npm install
-```
+3. Connect your GitHub and select the `config-flow-setup` branch
 
-### 3. Create a `.env` file
+4. Set your start command:
 
-```
-EMBY_URL=https://your-emby-server:443
-EMBY_USERNAME=yourServerUsername
-EMBY_PASSWORD=yourPassword
-```
+   ```
+   node index.js
 
-### 4. Start the addon
+   ```
+5. Set your start command:
+   ```
+   https://your-app-name.onrender.com/manifest.json
 
-```
-node index.js
-```
-
-The addon will run at:
-
-```
-http://localhost:7000/manifest.json
-```
-
----
+   ```
 
 ## 📦 Add to Stremio
 
 1. Open **Stremio** (desktop app or web)
-2. Go to **Add-ons** → **Community Add-ons**
-3. Click **"Install via URL"**
-4. Paste:
+2. Go to **Add-ons** → **Add addon**
+3. Paste:
 
+   ```
+   https://your-app-name.onrender.com/manifest.json
+
+   ```
+4. Enter the configuration fields prompted:
+
+   - Emby Server URL (e.g., httpw://yourembyserverURL@xyx.com:443)
+   - Emby User ID
+   - Emby Access Token
+
+## 🔐 How to Get Your Emby Credentials
+
+If you don’t know your Emby User ID or Access Token, you can get them with this `curl` command:
+
+```bash
+curl -X POST http://<EMBY_SERVER>/Users/AuthenticateByName \
+  -H 'X-Emby-Authorization: MediaBrowser Client="StreamBridge", Device="WebHelper", DeviceId="addon-ui", Version="1.0.0"' \
+  -H "Content-Type: application/json" \
+  -d '{"Username":"yourUsername","Pw":"yourPassword"}'
 ```
-http://localhost:7000/manifest.json
-```
 
----
-### 📺 Using on Local Network (TV or Other Devices)
+From the JSON response:
 
-If your TV (e.g. Android TV, Firestick) or another device is on the **same Wi-Fi or local network** as the computer running this addon:
+* `"User"."Id"` → Your **User ID**
+* `"AccessToken"` → Your **Access Token**
 
-1. Start the addon with:
-
-   ```
-   node index.js
-   ```
-
-2. Find your computer’s local IP address (e.g., `192.168.1.100`)
-
-3. On your TV, open Stremio → Add-ons → Install via URL and enter:
-
-   ```
-   http://192.168.1.100:7000/manifest.json
-   ```
-
-> ⚠️ **Heads-up:** Depending on your setup (e.g., Windows Firewall, UFW on Linux), you may need to allow inbound connections to port `7000` on your local machine. This is required for other devices on your network to connect.
-
-You do **not** need to expose this to the internet unless you want remote access.
-
----
-## 📅 Future Plans
-- Deploy to render or awslambda as function and use that as addon URL.
-- Docker container for easy deployment on home servers
-- Support multiple Emby libraries in stremio
----
+These values can be pasted into the addon config popup in Stremio.
 
 ## 🛠 Tech Stack
 
@@ -124,5 +103,3 @@ You are responsible for ensuring your use of this project complies with any appl
 ## 📄 License
 
 MIT License
-
-

@@ -8,7 +8,7 @@ const builder = new addonBuilder({
   id: "org.streambridge.embyresolver",   
   version: "1.0.0",
   name: "StreamBridge: Emby to Stremio",
-  description: "Streams media from your personal or shared Embyserver using IMDb/TMDB IDs.",
+  description: "Streams media from your personal or shared Embyserver using IMDb/TMDB IDs. Get your Emby Access Token and User ID by opening /helper.html in your browser.",
   resources: [
     {
       name: "stream",

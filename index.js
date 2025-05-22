@@ -15,7 +15,7 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const builder = new addonBuilder({
   id: "org.streambridge.embyresolver",   
-  version: "1.0.0",
+  version: "1.0.1",
   name: "StreamBridge: Emby to Stremio",
   description: "Streams media from your personal or shared Embyserver using IMDb/TMDB IDs. Get your Emby Access Token and User ID by opening http://39427cdac546-streambridge.baby-beamup.club/helper.html in your browser.",
   resources: [

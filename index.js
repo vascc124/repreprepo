@@ -1,14 +1,23 @@
-const { addonBuilder, serveHTTP } = require("stremio-addon-sdk");
+const express = require("express");
+const path = require("path");
+const { addonBuilder, getRouter } = require("stremio-addon-sdk");
 const emby = require("./embyClient");
 require('dotenv').config();
 
+
 const PORT = process.env.PORT || 7000;
+const app = express();
+
+// Serve static files from the "public" folder (e.g., /helper.html)
+app.use(express.static(path.join(__dirname, "public")));
+
+
 
 const builder = new addonBuilder({
   id: "org.streambridge.embyresolver",   
   version: "1.0.0",
   name: "StreamBridge: Emby to Stremio",
-  description: "Streams media from your personal or shared Embyserver using IMDb/TMDB IDs. Get your Emby Access Token and User ID by opening /helper.html in your browser.",
+  description: "Streams media from your personal or shared Embyserver using IMDb/TMDB IDs. Get your Emby Access Token and User ID by opening http://39427cdac546-streambridge.baby-beamup.club/helper.html in your browser.",
   resources: [
     {
       name: "stream",
@@ -90,6 +99,10 @@ builder.defineStreamHandler(async (args) => {
   }
 });
 
-// Start HTTP server
-serveHTTP(builder.getInterface(), { port: PORT, hostname: '0.0.0.0' });
-console.log(`🚀 StreamBridge:Emby to Stremio Addon running at http://localhost:${PORT}/manifest.json`);
+// Attach Stremio interface to Express
+app.use("/", getRouter(builder.getInterface()));
+
+/// Start server
+app.listen(PORT, () => {
+  console.log(`🚀 StreamBridge running at http://localhost:${PORT}/manifest.json`);
+});

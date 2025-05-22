@@ -17,15 +17,20 @@
 
 To use this addon:
 
-1. Go to the configuration page:
-[StreamBridge Configure](https://39427cdac546-streambridge.baby-beamup.club/configure)
+1. Go to the Stremio app.
 
-2. Paste your:
+2. Install addon using link. Use the following link.
+```
+https://39427cdac546-streambridge.baby-beamup.club/manifest.json
+```
+
+
+3. Paste your credentials in the config page that opens:
     - **Emby Server URL** (e.g., `http://abcxyz.com:443`)
     - **User ID**
     - **Access Token**
 
-3. Install in Stremio when prompted.
+3. Click on Install.
 
 4. The addon will return streams for matching titles in your Emby server when clicked in Stremio.
 

@@ -100,7 +100,8 @@ builder.defineStreamHandler(async (args) => {
 });
 
 // Attach Stremio interface to Express
-app.use("/", getRouter(builder.getInterface()));
+const addonInterface = builder.getInterface();   
+app.use("/", getRouter(addonInterface));
 
 /// Start server
 app.listen(PORT, () => {

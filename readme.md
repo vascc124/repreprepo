@@ -52,7 +52,7 @@ curl -X POST http://<EMBY_SERVER>/Users/AuthenticateByName \
 ## 🚀 Addon Deployment Guide 
 ***Note: This is only for Developers who want to deploy their own version, not needed to use the addon. If you are here to just use the addon, the guide above should suffice that.***
 
-### One-Click Deploy with [BeamUp](https://beamup.dev/)
+### One-Click Deploy with Beamup.
 
 > BeamUp is a free hosting service built specifically for Stremio addons.
 

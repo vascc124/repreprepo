@@ -46,18 +46,22 @@ function baseManifest() {
   return builder.manifest;
 }
 
+function encodeCfg(obj) {
+  return Buffer.from(JSON.stringify(obj)).toString("base64url"); // no "=" padding
+}
+function decodeCfg(str) {
+  return JSON.parse(Buffer.from(str, "base64url").toString("utf8"));
+}   
+
 // ──────────────────────────────────────────────────────────────────────────
 // 3.  Parameterised MANIFEST route  →  /<cfg>/manifest.json
 //     <cfg> is a base64-url-encoded JSON blob with {serverUrl,userId,accessToken}
 // ──────────────────────────────────────────────────────────────────────────
 app.get("/:cfg/manifest.json", (req, res) => {
   const cfgString = req.params.cfg;
-  let cfg;
+  let cfg;  
   try {
-    // decode base64-url
-    const json = Buffer.from(cfgString.replace(/-/g, "+").replace(/_/g, "/"), "base64")
-                       .toString("utf8");
-    cfg = JSON.parse(json);
+    cfg = decodeCfg(req.params.cfg);
   } catch {
     return res.status(400).json({ err: "Bad config in URL" });
   }
@@ -75,11 +79,10 @@ app.get("/:cfg/manifest.json", (req, res) => {
 // ──────────────────────────────────────────────────────────────────────────
 app.get("/:cfg/stream/:type/:id.json", async (req, res) => {
   // decode cfg (same helper as above)
+
   let cfg;
   try {
-    const json = Buffer.from(req.params.cfg.replace(/-/g, "+").replace(/_/g, "/"), "base64")
-                       .toString("utf8");
-    cfg = JSON.parse(json);
+    cfg = decodeCfg(req.params.cfg);
   } catch {
     return res.json({ streams: [] });
   }

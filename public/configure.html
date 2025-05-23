@@ -47,9 +47,9 @@ form.addEventListener("submit", e => {
   e.preventDefault();
   const cfg = Object.fromEntries(new FormData(form).entries());
 
-  // encode as base64-url
-  let cfg64 = btoa(unescape(encodeURIComponent(JSON.stringify(cfg))))
-                .replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+    // build a base64-url string that will live in the pathname
+    const cfg64 = btoa(unescape(encodeURIComponent(JSON.stringify(cfg))))
+                    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
   const httpURL    = `${location.origin}/${cfg64}/manifest.json`;
   const stremioURL = `stremio://${location.host}/${cfg64}/manifest.json`;

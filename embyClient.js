@@ -15,9 +15,11 @@ const DEFAULT_FIELDS = "ProviderIds,Name,MediaSources,Path,Id,IndexNumber,Parent
  * @param {object} providerIds - The ProviderIds object from Emby.
  * @param {string|null} imdbIdToMatch - The IMDb ID (e.g., "tt1234567").
  * @param {string|null} tmdbIdToMatch - The TMDb ID (as a string).
+ * @param {string|null} tvdbIdToMatch - The TVDB ID (as a string).
+ * @param {string|null} anidbIdToMatch - The AniDB ID (as a string).
  * @returns {boolean} True if a match is found, false otherwise.
  */
-function _isMatchingProviderId(providerIds, imdbIdToMatch, tmdbIdToMatch) {
+function _isMatchingProviderId(providerIds, imdbIdToMatch, tmdbIdToMatch, tvdbIdToMatch, anidbIdToMatch) {
     if (!providerIds) return false;
 
     // Check IMDb (case-insensitive and numeric format)
@@ -34,6 +36,19 @@ function _isMatchingProviderId(providerIds, imdbIdToMatch, tmdbIdToMatch) {
             (providerIds.Tmdb && String(providerIds.Tmdb) === tmdbIdStr)) return true; // Compare against Emby's value as string too
     }
 
+    // Check TVDB (case-insensitive and string/number comparison)
+    if (tvdbIdToMatch) {
+        const tvdbIdStr = String(tvdbIdToMatch); // Ensure it's a string for comparison
+        if (providerIds.Tvdb === tvdbIdStr || providerIds.tvdb === tvdbIdStr || providerIds.TVDB === tvdbIdStr ||
+            (providerIds.Tvdb && String(providerIds.Tvdb) === tvdbIdStr)) return true; // Compare against Emby's value as string too
+    }
+
+    // Check AniDB (case-insensitive and string/number comparison)
+    if (anidbIdToMatch) {
+        const anidbIdStr = String(anidbIdToMatch); // Ensure it's a string for comparison
+        if (providerIds.AniDb === anidbIdStr || providerIds.anidb === anidbIdStr || providerIds.ANIDB === anidbIdStr ||
+            (providerIds.AniDb && String(providerIds.AniDb) === anidbIdStr)) return true; // Compare against Emby's value as string too
+    }
     return false;
 }
 
@@ -47,12 +62,14 @@ function parseMediaId(idOrExternalId) {
     if (!idOrExternalId) return null;
 
     const parts = idOrExternalId.split(':');
-    const baseId = parts[0];
+    let baseId = parts[0];
     let itemType = ITEM_TYPE_MOVIE; // Default to Movie
     let seasonNumber = null;
     let episodeNumber = null;
     let imdbId = null;
     let tmdbId = null;
+    let tvdbId = null;
+    let anidbId = null;
 
     if (parts.length === 3) {
         itemType = ITEM_TYPE_EPISODE; // Indicates a series episode
@@ -62,24 +79,56 @@ function parseMediaId(idOrExternalId) {
              console.warn("❌ Invalid season/episode number in ID:", idOrExternalId);
              return null; // Invalid format
         }
+    } else if (parts.length === 2) {
+        
+        const prefix = parts[0].toLowerCase();
+        const idPart = parts[1];
+        if (!idPart) {
+            console.warn(`❌ Missing ${prefix.toUpperCase()} ID part in ID:`, idOrExternalId);
+            return null;
+        }
+        if (prefix === "tmdb") {
+            tmdbId = idPart;
+            baseId = `tmdb${idPart}`; // normalized
+        } else if (prefix === "imdb") {
+            imdbId = idPart.startsWith("tt") ? idPart : `tt${idPart}`;
+            baseId = imdbId; // normalized
+        } else if (prefix === "tvdb") {
+            tvdbId = idPart;
+            baseId = `tvdb${idPart}`; // normalized
+        } else if (prefix === "anidb") {
+            anidbId = idPart;
+            baseId = `anidb${idPart}`; // normalized
+        } else {
+            console.warn("❌ Unsupported prefix in ID:", prefix);
+            return null;
+        }
     } else if (parts.length !== 1) {
-         console.warn("❌ Unexpected ID format:", idOrExternalId);
-         return null; // Unexpected format
+        console.warn("❌ Unexpected ID format:", idOrExternalId);
+        return null; // Unexpected format
     }
 
     if (baseId.startsWith("tt")) {
+        if (baseId.length <= 2) {
+            console.warn("❌ Incomplete IMDb ID format:", baseId);
+            return null;
+        }
         imdbId = baseId;
-    } else if (baseId.startsWith("imdb") && baseId.length > 4) { // Handle cases like "imdbtt12345" if they occur, or just "imdb:tt..."? Assuming prefix needs removal. Check original intent if needed.
-        imdbId = baseId.substring(4); // Assuming "imdb" prefix needs removal; adjust if it's "imdb:tt..."
-        if (!imdbId.startsWith("tt")) imdbId = "tt" + imdbId; // Ensure format consistency if only number follows "imdb"
+    } else if (baseId.startsWith("imdb") && baseId.length > 4) { 
+        imdbId = baseId.substring(4); 
+        if (!imdbId.startsWith("tt")) imdbId = "tt" + imdbId; 
     } else if (baseId.startsWith("tmdb") && baseId.length > 4) {
         tmdbId = baseId.substring(4);
+    } else if (baseId.startsWith("tvdb") && baseId.length > 4) {
+        tvdbId = baseId.substring(4);
+    } else if (baseId.startsWith("anidb") && baseId.length > 5) {
+        anidbId = baseId.substring(5);
     } else {
-        console.warn("❌ Unsupported base ID format (expected tt... or tmdb...):", baseId);
+        console.warn("❌ Unsupported base ID format (expected tt..., tmdb..., tvdb..., or anidb...):", baseId);
         return null;
     }
 
-    return { baseId, itemType, seasonNumber, episodeNumber, imdbId, tmdbId };
+    return { baseId, itemType, seasonNumber, episodeNumber, imdbId, tmdbId, tvdbId, anidbId };
 }
 
 
@@ -117,10 +166,12 @@ async function makeEmbyApiRequest(url, params = {}, config) {
  * Attempts to find a movie item in Emby using various strategies.
  * @param {string|null} imdbId - The IMDb ID to search for.
  * @param {string|null} tmdbId - The TMDb ID to search for.
+ * @param {string|null} tvdbId - The TVDB ID to search for.
+ * @param {string|null} anidbId - The AniDB ID to search for.
  * @param {object} config - The configuration object containing serverUrl, userId, and accessToken.
  * @returns {Promise<object|null>} The found Emby movie item or null.
  */
-async function findMovieItem(imdbId, tmdbId, config) {
+async function findMovieItem(imdbId, tmdbId, tvdbId, anidbId, config) {
     let foundItem = null;
     const baseMovieParams = {
         IncludeItemTypes: ITEM_TYPE_MOVIE,
@@ -136,11 +187,12 @@ async function findMovieItem(imdbId, tmdbId, config) {
     let searchedIdField = "";
     if (imdbId) { directLookupParams.ImdbId = imdbId; searchedIdField = "ImdbId"; }
     else if (tmdbId) { directLookupParams.TmdbId = tmdbId; searchedIdField = "TmdbId"; }
-
+    else if (tvdbId) { directLookupParams.TvdbId = tvdbId; searchedIdField = "TvdbId"; }
+    else if (anidbId) { directLookupParams.AniDbId = anidbId; searchedIdField = "AniDbId"; }
     if (searchedIdField) {
         const data = await makeEmbyApiRequest(`${config.serverUrl}/Items`, directLookupParams, config);
         if (data?.Items?.length > 0) {
-            foundItem = data.Items.find(i => _isMatchingProviderId(i.ProviderIds, imdbId, tmdbId));
+            foundItem = data.Items.find(i => _isMatchingProviderId(i.ProviderIds, imdbId, tmdbId, tvdbId, anidbId));
              if (foundItem) {
                 //console.log(`🔍 Found movie via /Items with ${searchedIdField}=${directLookupParams[searchedIdField]}`);
                 return foundItem;
@@ -157,17 +209,23 @@ async function findMovieItem(imdbId, tmdbId, config) {
             if (numericImdbId !== imdbId) anyProviderIdFormats.push(`imdb.${numericImdbId}`, `Imdb.${numericImdbId}`);
         } else if (tmdbId) {
             anyProviderIdFormats.push(`tmdb.${tmdbId}`, `Tmdb.${tmdbId}`);
+        } else if (tvdbId) {
+            anyProviderIdFormats.push(`tvdb.${tvdbId}`, `Tvdb.${tvdbId}`);
+        } else if (anidbId) {
+            anyProviderIdFormats.push(`anidb.${anidbId}`, `AniDb.${anidbId}`);
         }
 
         for (const attemptFormat of anyProviderIdFormats) {
             const altParams = { ...baseMovieParams, AnyProviderIdEquals: attemptFormat };
             delete altParams.ImdbId; // Remove specific ID params when using AnyProviderIdEquals
             delete altParams.TmdbId;
+            delete altParams.TvdbId;
+            delete altParams.AniDbId;
             delete altParams.UserId; // /Users/{userId}/Items doesn't need UserId in params
 
             const data = await makeEmbyApiRequest(`${config.serverUrl}/Users/${config.userId}/Items`, altParams, config);
             if (data?.Items?.length > 0) {
-                foundItem = data.Items.find(i => _isMatchingProviderId(i.ProviderIds, imdbId, tmdbId));
+                foundItem = data.Items.find(i => _isMatchingProviderId(i.ProviderIds, imdbId, tmdbId, tvdbId, anidbId));
                  if (foundItem) {
                     //console.log(`🔍 Found movie via /Users/{UserId}/Items with AnyProviderIdEquals=${attemptFormat}`);
                     return foundItem;
@@ -185,10 +243,12 @@ async function findMovieItem(imdbId, tmdbId, config) {
  * Attempts to find a series item in Emby.
  * @param {string|null} imdbId - The IMDb ID of the series.
  * @param {string|null} tmdbId - The TMDb ID of the series.
+ * @param {string|null} tvdbId - The TVDB ID of the series.
+ * @param {string|null} anidbId - The AniDB ID of the series.
  * @param {object} config - The configuration object containing serverUrl, userId, and accessToken.
  * @returns {Promise<object|null>} The found Emby series item or null.
  */
-async function findSeriesItem(imdbId, tmdbId, config) {
+async function findSeriesItem(imdbId, tmdbId, tvdbId, anidbId, config) {
     let foundSeries = null;
     const baseSeriesParams = {
         IncludeItemTypes: ITEM_TYPE_SERIES,
@@ -201,10 +261,11 @@ async function findSeriesItem(imdbId, tmdbId, config) {
     const seriesLookupParams1 = { ...baseSeriesParams };
     if (imdbId) seriesLookupParams1.ImdbId = imdbId;
     else if (tmdbId) seriesLookupParams1.TmdbId = tmdbId;
-
+    else if (tvdbId) seriesLookupParams1.TvdbId = tvdbId;
+    else if (anidbId) seriesLookupParams1.AniDbId = anidbId;
     const data1 = await makeEmbyApiRequest(`${config.serverUrl}/Users/${config.userId}/Items`, seriesLookupParams1, config);
     if (data1?.Items?.length > 0) {
-        foundSeries = data1.Items.find(s => _isMatchingProviderId(s.ProviderIds, imdbId, tmdbId));
+        foundSeries = data1.Items.find(s => _isMatchingProviderId(s.ProviderIds, imdbId, tmdbId, tvdbId, anidbId));
         if (foundSeries) {
              //console.log(`🔍 Found series via /Users/{UserId}/Items with ImdbId/TmdbId`);
             return foundSeries;
@@ -216,15 +277,17 @@ async function findSeriesItem(imdbId, tmdbId, config) {
         let anyProviderIdValue = null;
         if (imdbId) anyProviderIdValue = `imdb.${imdbId}`;
         else if (tmdbId) anyProviderIdValue = `tmdb.${tmdbId}`;
-
+        else if (tvdbId) anyProviderIdValue = `tvdb.${tvdbId}`;
+        else if (anidbId) anyProviderIdValue = `anidb.${anidbId}`;
         if (anyProviderIdValue) {
             const seriesLookupParams2 = { ...baseSeriesParams, AnyProviderIdEquals: anyProviderIdValue };
             delete seriesLookupParams2.ImdbId; // Remove specific ID params
             delete seriesLookupParams2.TmdbId;
-
+            delete seriesLookupParams2.TvdbId;
+            delete seriesLookupParams2.AniDbId;
             const data2 = await makeEmbyApiRequest(`${config.serverUrl}/Users/${config.userId}/Items`, seriesLookupParams2, config);
             if (data2?.Items?.length > 0) {
-                foundSeries = data2.Items.find(s => _isMatchingProviderId(s.ProviderIds, imdbId, tmdbId));
+                foundSeries = data2.Items.find(s => _isMatchingProviderId(s.ProviderIds, imdbId, tmdbId, tvdbId, anidbId));
                  if (foundSeries) {
                     //console.log(`🔍 Found series via /Users/{UserId}/Items with AnyProviderIdEquals=${anyProviderIdValue}`);
                     return foundSeries;
@@ -404,10 +467,10 @@ async function getStream(idOrExternalId, config) {
 
         if (parsedId.itemType === ITEM_TYPE_MOVIE) {
             //console.log(`🎬 Searching for Movie: ${parsedId.imdbId || parsedId.tmdbId}`);
-            embyItem = await findMovieItem(parsedId.imdbId, parsedId.tmdbId, config);
+            embyItem = await findMovieItem(parsedId.imdbId, parsedId.tmdbId, parsedId.tvdbId, parsedId.anidbId, config);
         } else if (parsedId.itemType === ITEM_TYPE_EPISODE) {   
             //console.log(`📺 Searching for Series: ${parsedId.imdbId || parsedId.tmdbId}`);
-            const seriesItem = await findSeriesItem(parsedId.imdbId, parsedId.tmdbId, config);
+            const seriesItem = await findSeriesItem(parsedId.imdbId, parsedId.tmdbId, parsedId.tvdbId, parsedId.anidbId, config);
             if (seriesItem) {
                 parentSeriesName = seriesItem.Name;
                 embyItem = await findEpisodeItem(seriesItem, parsedId.seasonNumber, parsedId.episodeNumber, config);
@@ -434,4 +497,5 @@ async function getStream(idOrExternalId, config) {
 // --- Exports ---
 module.exports = {
     getStream,
+    parseMediaId
 };

@@ -134,7 +134,9 @@ app.get("/manifest.json", (_req, res) => {
 app.get("/configure", (_req, res) =>
   res.sendFile(path.join(__dirname, "public", "configure.html")));
 
-
+app.get("/:cfg/configure", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "configure.html"));
+});
 // ──────────────────────────────────────────────────────────────────────────
 // Start the server
 // ──────────────────────────────────────────────────────────────────────────

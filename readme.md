@@ -7,7 +7,7 @@
 | Features                       | Description                                                                                      |
 |--------------------------------|----------------------------------------------------------------------------------------------------|
 | **One-page setup**             | Custom User configuration page to help user get thier **User ID** + **Access Token** *and* builds the ready-to-install link. |
-| **IMDb / TMDb matching**       | Works with IDs like `tt1234567` or `tmdb:98765`.                                                   |
+| **IMDb / TMDb / Tvdb / Anidb matching**       | Works with IDs like `tt1234567` or `tmdb:98765` etc                                                   |
 | **Direct-play multi-quality**  | Direct play URLs with support for different quality options       |
 
 --

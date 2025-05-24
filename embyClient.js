@@ -172,7 +172,7 @@ async function makeEmbyApiRequest(url, params = {}, config) {
  * @returns {Promise<object|null>} The found Emby movie item or null.
  */
 async function findMovieItem(imdbId, tmdbId, tvdbId, anidbId, config) {
-    let foundItem = null;
+    let foundItems = [];
     const baseMovieParams = {
         IncludeItemTypes: ITEM_TYPE_MOVIE,
         Recursive: true,
@@ -192,16 +192,16 @@ async function findMovieItem(imdbId, tmdbId, tvdbId, anidbId, config) {
     if (searchedIdField) {
         const data = await makeEmbyApiRequest(`${config.serverUrl}/Items`, directLookupParams, config);
         if (data?.Items?.length > 0) {
-            foundItem = data.Items.find(i => _isMatchingProviderId(i.ProviderIds, imdbId, tmdbId, tvdbId, anidbId));
-             if (foundItem) {
+            const matches = data.Items.filter(i => _isMatchingProviderId(i.ProviderIds, imdbId, tmdbId, tvdbId, anidbId));
+            if (matches.length > 0) {
                 //console.log(`🔍 Found movie via /Items with ${searchedIdField}=${directLookupParams[searchedIdField]}`);
-                return foundItem;
+                foundItems.push(...matches);
             }
         }
     }
 
     // --- Strategy 2: AnyProviderIdEquals Lookup (/Users/{UserId}/Items) ---
-    if (!foundItem) {
+    if (foundItems.length === 0) {
         const anyProviderIdFormats = [];
         if (imdbId) {
             const numericImdbId = imdbId.replace('tt', '');
@@ -225,17 +225,18 @@ async function findMovieItem(imdbId, tmdbId, tvdbId, anidbId, config) {
 
             const data = await makeEmbyApiRequest(`${config.serverUrl}/Users/${config.userId}/Items`, altParams, config);
             if (data?.Items?.length > 0) {
-                foundItem = data.Items.find(i => _isMatchingProviderId(i.ProviderIds, imdbId, tmdbId, tvdbId, anidbId));
-                 if (foundItem) {
+                const matches = data.Items.filter(i => _isMatchingProviderId(i.ProviderIds, imdbId, tmdbId, tvdbId, anidbId));
+                 if (matches.length > 0) {
                     //console.log(`🔍 Found movie via /Users/{UserId}/Items with AnyProviderIdEquals=${attemptFormat}`);
-                    return foundItem;
+                    foundItems.push(...matches);
                 }
             }
         }
     }
 
-     if (!foundItem) //console.log(`📭 No Emby movie match found for ${imdbId || tmdbId}.`);
-    return null; // Return null if not found after all attempts
+     //if (foundItems.length === 0) 
+        //console.log(`📭 No Emby movie match found for ${imdbId || tmdbId || tvdbId || anidbId}.`);
+    return foundItems; // Return foundItems if found after all attempts
 }
 
 
@@ -249,7 +250,7 @@ async function findMovieItem(imdbId, tmdbId, tvdbId, anidbId, config) {
  * @returns {Promise<object|null>} The found Emby series item or null.
  */
 async function findSeriesItem(imdbId, tmdbId, tvdbId, anidbId, config) {
-    let foundSeries = null;
+    let foundSeries = [];
     const baseSeriesParams = {
         IncludeItemTypes: ITEM_TYPE_SERIES,
         Recursive: true,
@@ -265,15 +266,15 @@ async function findSeriesItem(imdbId, tmdbId, tvdbId, anidbId, config) {
     else if (anidbId) seriesLookupParams1.AniDbId = anidbId;
     const data1 = await makeEmbyApiRequest(`${config.serverUrl}/Users/${config.userId}/Items`, seriesLookupParams1, config);
     if (data1?.Items?.length > 0) {
-        foundSeries = data1.Items.find(s => _isMatchingProviderId(s.ProviderIds, imdbId, tmdbId, tvdbId, anidbId));
-        if (foundSeries) {
+        const matches = data1.Items.filter(s => _isMatchingProviderId(s.ProviderIds, imdbId, tmdbId, tvdbId, anidbId));
+        if (matches.length > 0) {
              //console.log(`🔍 Found series via /Users/{UserId}/Items with ImdbId/TmdbId`);
-            return foundSeries;
+            foundSeries.push(...matches);
         }
     }
 
     // --- Strategy 2: AnyProviderIdEquals Lookup (/Users/{UserId}/Items) ---
-    if (!foundSeries) {
+    if (foundSeries.length === 0) {
         let anyProviderIdValue = null;
         if (imdbId) anyProviderIdValue = `imdb.${imdbId}`;
         else if (tmdbId) anyProviderIdValue = `tmdb.${tmdbId}`;
@@ -287,17 +288,17 @@ async function findSeriesItem(imdbId, tmdbId, tvdbId, anidbId, config) {
             delete seriesLookupParams2.AniDbId;
             const data2 = await makeEmbyApiRequest(`${config.serverUrl}/Users/${config.userId}/Items`, seriesLookupParams2, config);
             if (data2?.Items?.length > 0) {
-                foundSeries = data2.Items.find(s => _isMatchingProviderId(s.ProviderIds, imdbId, tmdbId, tvdbId, anidbId));
-                 if (foundSeries) {
+                const matches = data2.Items.filter(s => _isMatchingProviderId(s.ProviderIds, imdbId, tmdbId, tvdbId, anidbId));
+                 if (matches.length > 0) {
                     //console.log(`🔍 Found series via /Users/{UserId}/Items with AnyProviderIdEquals=${anyProviderIdValue}`);
-                    return foundSeries;
+                    foundSeries.push(...matches);
                 }
             }
         }
     }
 
-    if (!foundSeries) //console.log(`📭 No Emby series match found for ${imdbId || tmdbId}.`);
-    return null;
+    //if (foundSeries.length === 0) console.log(`📭 No Emby series match found for ${imdbId || tmdbId || tvdbId || anidbId}.`);
+    return foundSeries;
 }
 
 /**
@@ -321,7 +322,7 @@ async function findEpisodeItem(parentSeriesItem, seasonNumber, episodeNumber, co
     // 2. Find the Target Season
     const targetSeason = seasonsData.Items.find(s => s.IndexNumber === seasonNumber);
     if (!targetSeason) {
-        console.warn(`❌ Season ${seasonNumber} not found for series: ${parentSeriesItem.Name}`);
+        //console.info(`ℹ️ Season ${seasonNumber} not found for series: ${parentSeriesItem.Name}`);
         return null;
     }
 
@@ -343,7 +344,7 @@ async function findEpisodeItem(parentSeriesItem, seasonNumber, episodeNumber, co
     const targetEpisode = episodesData.Items.find(ep => ep.IndexNumber === episodeNumber && ep.ParentIndexNumber === seasonNumber);
 
     if (!targetEpisode) {
-        console.warn(`❌ Episode S${seasonNumber}E${episodeNumber} not found in series: ${parentSeriesItem.Name}`);
+        console.info(`ℹ️ Episode S${seasonNumber}E${episodeNumber} not found in series: ${parentSeriesItem.Name}`);
         return null;
     }
 
@@ -434,7 +435,7 @@ async function getPlaybackStreams(embyItem, seriesName = null, config) {
 }
 
 
-// --- Main Exported Function (Modified) ---
+// --- Main Exported Function ---
 
 /**
  * Orchestrates the process of finding an Emby item (movie or episode) based on
@@ -451,15 +452,18 @@ async function getStream(idOrExternalId, config) {
         console.error("❌ Configuration missing (serverUrl, userId, or accessToken)");
         return null; // Critical configuration is missing
     }
-    
+    let fullIdForLog = idOrExternalId;
     try {
         // 1. Parse Input ID
         const parsedId = parseMediaId(idOrExternalId);
+        if (parsedId) {
+            fullIdForLog = parsedId.baseId + (parsedId.itemType === ITEM_TYPE_EPISODE ? ` S${parsedId.seasonNumber}E${parsedId.episodeNumber}` : '');
+        }
         if (!parsedId) {
             console.error(`❌ Failed to parse input ID: ${idOrExternalId}`);
             return null;
         }
-        const fullIdForLog = parsedId.baseId + (parsedId.itemType === ITEM_TYPE_EPISODE ? ` S${parsedId.seasonNumber}E${parsedId.episodeNumber}` : '');
+        //const fullIdForLog = parsedId.baseId + (parsedId.itemType === ITEM_TYPE_EPISODE ? ` S${parsedId.seasonNumber}E${parsedId.episodeNumber}` : '');
 
         // 2. Find the Emby Item
         let embyItem = null;
@@ -470,19 +474,44 @@ async function getStream(idOrExternalId, config) {
             embyItem = await findMovieItem(parsedId.imdbId, parsedId.tmdbId, parsedId.tvdbId, parsedId.anidbId, config);
         } else if (parsedId.itemType === ITEM_TYPE_EPISODE) {   
             //console.log(`📺 Searching for Series: ${parsedId.imdbId || parsedId.tmdbId}`);
-            const seriesItem = await findSeriesItem(parsedId.imdbId, parsedId.tmdbId, parsedId.tvdbId, parsedId.anidbId, config);
-            if (seriesItem) {
-                parentSeriesName = seriesItem.Name;
-                embyItem = await findEpisodeItem(seriesItem, parsedId.seasonNumber, parsedId.episodeNumber, config);
+            const seriesItems = await findSeriesItem(parsedId.imdbId, parsedId.tmdbId, parsedId.tvdbId, parsedId.anidbId, config);
+            if (seriesItems && seriesItems.length > 0) {
+                let allStreams = [];
+                let totalSeries = seriesItems.length;
+                let failedSeries = 0;
+                for (const series of seriesItems) {
+                    const episode = await findEpisodeItem(series, parsedId.seasonNumber, parsedId.episodeNumber, config);
+                    if (episode) {
+                        const streams = await getPlaybackStreams(episode, series.Name, config);  
+                        if (streams) allStreams.push(...streams);
+                    } else {
+                        failedSeries++;  // 🔥 Count failures
+                    }
+                }
+                if (allStreams.length > 0) {
+                    return allStreams;
+                } else {
+                    if (failedSeries === totalSeries) {
+                        console.warn(`📭 Could not find episode S${parsedId.seasonNumber}E${parsedId.episodeNumber} for ${fullIdForLog} in any matching series.`);
+                    } else {
+                        console.info(`ℹ️ Found partial matches, but no streams for S${parsedId.seasonNumber}E${parsedId.episodeNumber} in available series.`);
+                    }
+                    return null;
+                }
             } else {
-                 console.warn(`📭 Could not find parent series for ${fullIdForLog}, cannot find episode.`);
+                console.warn(`📭 Could not find parent series for ${fullIdForLog}, cannot find episode.`);
+                return null;
             }
         }
 
         // 3. Get Playback Streams if Item Found
-        if (embyItem) {
-             // console.log(`🎯 Using final Emby item: ${embyItem.Name} (${embyItem.Id}), Type: ${embyItem.Type}`);
-            return await getPlaybackStreams(embyItem, parentSeriesName, config);
+        if (embyItem && embyItem.length > 0) {  
+            let allStreams = [];
+            for (const item of embyItem) {
+                const streams = await getPlaybackStreams(item, parentSeriesName, config);
+                if (streams) allStreams.push(...streams);
+            }
+            return allStreams.length > 0 ? allStreams : null;
         } else {
              console.warn(`📭 No Emby match found for ${fullIdForLog} after all attempts.`);
             return null;

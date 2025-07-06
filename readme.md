@@ -10,6 +10,38 @@
 | **IMDb / TMDb / Tvdb / Anidb matching**       | Works with IDs like `tt1234567` or `tmdb:98765` etc                                                   |
 | **Direct-play multi-quality**  | Direct play URLs with support for different quality options       |
 
+## ⚠️ Requirements
+
+- **HTTPS Required**: Your Emby server must be accessible via HTTPS. HTTP and localhost addresses are not supported.
+- **Public Access**: The Emby server must be accessible from the internet (not just localhost).
+
+## ❓ FAQ
+
+### Getting "Load failure" or authentication errors?
+
+**Common causes and solutions:**
+
+1. **Using HTTP instead of HTTPS**
+   - ❌ `http://your-server.com:8096` 
+   - ✅ `https://your-server.com:8096`
+   - **Why?** Modern browsers and Stremio require secure connections for security. HTTP connections are blocked by default.   
+
+2. **Using Emby Connect credentials instead of server credentials**
+   - ❌ Your Emby Connect email/password
+   - ✅ Your Emby server username/password (the ones you use to log into your Emby web interface)
+   - **Where to get them?** Go to your Emby server web interface → Users → Your username → Edit → Set a password if you haven't already
+   - **Note:** These are the same credentials you use when logging into your Emby server directly in a browser
+
+3. **Using localhost addresses**
+   - ❌ `localhost:8096` or `127.0.0.1:8096`
+   - ✅ Your public HTTPS URL (e.g., `https://your-domain.com:8096`)
+   - **Why?** The addon runs on the internet and needs to reach your server from outside your network
+
+4. **Server not accessible from internet**
+   - Make sure your Emby server is accessible via HTTPS from outside your local network
+   - **Setup needed:** Configure your router/firewall to forward HTTPS traffic to your Emby server
+   - **Alternative:** Use a reverse proxy (nginx, Caddy) or VPN solution to expose your server securely
+
 --
 ## 📦 Quick Install
 

@@ -77,16 +77,29 @@ pre{
   <p style="text-align:center;margin-top:0.5rem;font-size:.8rem;color:var(--text-dim)">
     Need help? See <a href="https://github.com/h4harsimran/streambridge" target="_blank">docs on GitHub</a>.
   </p>
+  
+  <!-- HTTPS Warning -->
+  <div style="background:#1e293b;border:1px solid #475569;border-radius:8px;padding:1rem;margin-bottom:1.5rem;">
+    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
+      <span style="color:#fbbf24;font-size:1.2rem;">⚠️</span>
+      <strong style="color:#fbbf24;">Important: HTTPS Required</strong>
+    </div>
+    <p style="margin:0;font-size:0.9rem;color:var(--text-dim);line-height:1.4;">
+      This addon only works with Emby servers accessible via <strong>HTTPS</strong>. 
+      HTTP and localhost addresses are not supported. Make sure your Emby server is accessible 
+      through a secure HTTPS connection.
+    </p>
+  </div>
 
   <!--  1· Helper  -->
   <h2>1 · Fetch User ID & Token</h2>
   <form id="helper">
     <label>Emby Server URL</label>
-    <input name="url" placeholder="http://example.com:8096" required>
-    <label>Username</label>
-    <input name="user" required>
-    <label>Password</label>
-    <input name="pass" type="password" required>
+    <input name="url" placeholder="https://example.com:8096" required>
+    <label>Server Username (not Emby Connect)</label>
+    <input name="user" placeholder="Your Emby server username" required>
+    <label>Server Password (not Emby Connect)</label>
+    <input name="pass" type="password" placeholder="Your Emby server password" required>
     <button id="helperBtn">Get Access Info</button>
   </form>
 
@@ -132,6 +145,13 @@ $("#helper").addEventListener("submit", async e=>{
   const btn=$("#helperBtn");
   btn.disabled=true;btn.textContent="Fetching…";
 
+  // Ensure HTTPS
+  if(!url.startsWith("https://")) {
+    alert("❌ Please use HTTPS URLs only. Your Emby server must be accessible via HTTPS for this addon to work.");
+    btn.disabled=false;btn.textContent="Get Access Info";
+    return;
+  }
+
   try{
     const res=await fetch(`${url}/Users/AuthenticateByName`,{
       method:"POST",
@@ -165,6 +185,13 @@ $("#helper").addEventListener("submit", async e=>{
 $("#cfg").addEventListener("submit",e=>{
   e.preventDefault();
   const cfg=Object.fromEntries(new FormData(e.target).entries());
+  const serverUrl = cfg.serverUrl;
+
+  // Ensure HTTPS in config form
+  if(!serverUrl.startsWith("https://")) {
+    alert("❌ Please use HTTPS URLs only. Your Emby server must be accessible via HTTPS for this addon to work.");
+    return;
+  }
 
   const cfg64=btoa(unescape(encodeURIComponent(JSON.stringify(cfg))))
                 .replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");

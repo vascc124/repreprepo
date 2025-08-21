@@ -68,6 +68,16 @@ pre{
   transition:opacity .25s ease;
 }
 .toast.show{opacity:1}
+iframe.floatingchat-container,
+iframe[id*="kofi-wo-container"] {
+  width: 180px !important;      /* Match button's max width */
+  height: 46px !important;      /* Match button's height */
+  border-radius: 100px !important; /* Make pill-shaped like button */
+  overflow: hidden;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
 </style>
 </head>
 <body>
@@ -206,6 +216,15 @@ $("#cfg").addEventListener("submit",e=>{
     <button class="copy-btn" onclick="navigator.clipboard.writeText('${httpURL}').then(()=>toast('Copied URL'))">Copy URL</button>
   `;
 });
+</script>
+<script src='https://storage.ko-fi.com/cdn/scripts/overlay-widget.js'></script>
+<script>
+  kofiWidgetOverlay.draw('harsimranjeetsingh4', {
+    'type': 'floating-chat',
+    'floating-chat.donateButton.text': 'Support me',
+    'floating-chat.donateButton.background-color': '#22c55e',
+    'floating-chat.donateButton.text-color': '#fff'
+  });
 </script>
 </body>
 </html>

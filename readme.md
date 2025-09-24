@@ -9,7 +9,17 @@
 | **One-page setup**             | Custom User configuration page to help user get thier **User ID** + **Access Token** *and* builds the ready-to-install link. |
 | **IMDb / TMDb / Tvdb / Anidb matching**       | Works with IDs like `tt1234567` or `tmdb:98765` etc                                                   |
 | **Direct-play multi-quality**  | Direct play URLs with support for different quality options       |
+| **Flexible Emby catalogs**     | Automatically exposes each Emby library plus "Last Added" and "Favorites" sections in Stremio. |
+| **Emby-native metadata**      | Items without IMDb/TMDb IDs now appear using generated Emby IDs, including episode lists. |
 
+
+
+### Library browsing improvements
+
+- Multiple Stremio catalogs are generated per Emby library, including dedicated "Last Added" and "Favorites" views.
+- Catalog extras now support `sort=lastAdded`, `skip`, and `limit`, with larger page sizes (500 items by default).
+- The addon synthesizes Emby-only metadata so home videos and unmatched series are still browseable with episode listings.
+- Clicking those items now shows Emby-provided details inside Stremio instead of the "No information found" placeholder.
 ## ⚠️ Requirements
 
 - **HTTPS Required**: Your Emby server must be accessible via HTTPS. HTTP and localhost addresses are not supported.

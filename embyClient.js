@@ -24,7 +24,7 @@ const COLLECTION_TYPE_MAP = {
     homevideos: ['movie', 'series'],
     folders: ['movie', 'series']
 };
-const DEFAULT_CATALOG_LIMIT = 150;
+const DEFAULT_CATALOG_LIMIT = 100;
 const FALLBACK_SUBTITLE_FORMAT = 'vtt';
 const FALLBACK_META_PREFIX = "emby";
 const EMBY_ID_KINDS = { MOVIE: "movie", SERIES: "series", EPISODE: "episode" };
@@ -637,7 +637,7 @@ async function buildFallbackSeriesVideos(seriesItem, config) {
         SortOrder: 'Ascending',
         Recursive: true,
         UserId: config.userId,
-        Limit: 3000,
+        Limit: 800,
         ImageTypeLimit: 1,
         EnableImageTypes: 'Primary'
     };
@@ -716,6 +716,10 @@ async function mapEmbyItemToMeta(item, stremioType, config, preferredMetaId = nu
 
     if (item.Overview) meta.description = item.Overview;
     if (item.ProductionYear) meta.releaseInfo = String(item.ProductionYear);
+
+    if (!meta.description) {
+        meta.description = 'Personal library item imported from Emby.';
+    }
 
     const poster = buildPrimaryImageUrl(item, config);
     if (poster) meta.poster = poster;

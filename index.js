@@ -18,6 +18,16 @@ const PORT = process.env.PORT || 7000;
 const app  = express();
 const TEXT_SUBTITLE_FORMATS = new Set(['srt', 'subrip', 'ssa', 'ass', 'smi', 'sami', 'sub', 'vtt', 'dfxp', 'ttml', 'txt']);
 const DEVICE_ID = 'stremio-addon-device-id';
+const ADDON_TYPES = ['movie', 'series', 'channel'];
+const BASE_CATALOG_EXTRAS = [
+  { name: 'search', isRequired: false },
+  { name: 'skip', isRequired: false },
+  { name: 'limit', isRequired: false },
+  { name: 'sort', isRequired: false, options: ['name', 'lastAdded'] }
+];
+const LIVE_TV_CATALOG_ID = 'emby-live-tv';
+const LIVE_TV_CATALOG_NAME = 'Emby Live TV';
+
 
 // ──────────────────────────────────────────────────────────────────────────
 // Global middleware & static assets
@@ -38,15 +48,15 @@ function baseManifest () {
     catalogs : [],
     resources: [
       { name: "stream",
-        types: ["movie", "series"],
+        types: ADDON_TYPES,
         idPrefixes: ["tt", "imdb:", "tmdb:", "emby~"] },
       { name: "meta",
-        types: ["movie", "series"],
+        types: ADDON_TYPES,
         idPrefixes: ["tt", "imdb:", "tmdb:", "tvdb", "anidb", "emby~"] },
       { name: "catalog",
-        types: ["movie", "series"] }
+        types: ADDON_TYPES }
     ],
-    types: ["movie", "series"],
+    types: ADDON_TYPES,
     behaviorHints: { configurable: true, configurationRequired: true },
     config: [
       { key: "serverUrl",   type: "text", title: "Emby Server URL",  required: true },
@@ -103,12 +113,7 @@ app.get("/:cfg/manifest.json", async (req, res) => {
         catalogDefs.forEach(def => typeSet.add(def.type));
         catalogResource.types = Array.from(typeSet);
       }
-      const catalogExtras = [
-        { name: "search", isRequired: false },
-        { name: "skip", isRequired: false },
-        { name: "limit", isRequired: false },
-        { name: "sort", isRequired: false, options: ["name", "lastAdded"] }
-      ];
+      const catalogExtras = BASE_CATALOG_EXTRAS;
       mf.catalogs = catalogDefs.map(def => ({
         type: def.type,
         id: def.libraryId,
@@ -119,6 +124,28 @@ app.get("/:cfg/manifest.json", async (req, res) => {
     }
   } catch (err) {
     console.error("[WARN] Unable to load Emby libraries for manifest:", err.message);
+  }
+
+  try {
+    const hasLiveTv = await emby.hasLiveTvChannels(cfg);
+    if (hasLiveTv) {
+      const catalogResource = mf.resources.find(r => r.name === "catalog");
+      if (catalogResource) {
+        const typeSet = new Set(catalogResource.types || []);
+        typeSet.add("channel");
+        catalogResource.types = Array.from(typeSet);
+      }
+      const liveExtras = BASE_CATALOG_EXTRAS.map(extra => ({ ...extra }));
+      mf.catalogs.push({
+        type: "channel",
+        id: LIVE_TV_CATALOG_ID,
+        name: LIVE_TV_CATALOG_NAME,
+        extra: liveExtras,
+        extraSupported: liveExtras.map(extra => extra.name)
+      });
+    }
+  } catch (err) {
+    console.error("[WARN] Unable to detect Emby Live TV channels:", err.message);
   }
 
   res.json(mf);
@@ -137,12 +164,18 @@ app.get("/:cfg/meta/:type/:id.json", async (req, res) => {
 
   const { id, type } = req.params;
   if (!cfg.serverUrl || !cfg.userId || !cfg.accessToken) return res.json({ meta: null });
-  if (!["movie", "series"].includes(type)) return res.json({ meta: null });
+
+  const allowedTypes = new Set(["movie", "series", "channel"]);
+  if (!allowedTypes.has(type)) return res.json({ meta: null });
 
   try {
-    const meta = await emby.getMeta(id, type, cfg);
-    if (!meta) return res.json({ meta: null });
-    res.json({ meta });
+    let meta = null;
+    if (type === "channel") {
+      meta = await emby.getLiveTvChannelMeta(id, cfg);
+    } else {
+      meta = await emby.getMeta(id, type, cfg);
+    }
+    res.json({ meta: meta || null });
   } catch (err) {
     console.error("Meta handler error:", err.message);
     res.json({ meta: null });
@@ -162,7 +195,8 @@ app.get("/:cfg/catalog/:type/:id.json", async (req, res) => {
 
   const { id, type } = req.params;
   if (!cfg.serverUrl || !cfg.userId || !cfg.accessToken) return res.json({ metas: [] });
-  if (!["movie", "series"].includes(type)) return res.json({ metas: [] });
+  const allowedCatalogTypes = new Set(["movie", "series", "channel"]);
+  if (!allowedCatalogTypes.has(type)) return res.json({ metas: [] });
 
   const options = {};
   const skip = Number.parseInt(req.query.skip, 10);
@@ -171,6 +205,17 @@ app.get("/:cfg/catalog/:type/:id.json", async (req, res) => {
   if (!Number.isNaN(limit) && limit > 0) options.limit = limit;
   if (typeof req.query.search === "string") options.search = req.query.search;
   if (typeof req.query.sort === "string") options.sort = req.query.sort;
+
+  if (type === "channel") {
+    if (id !== LIVE_TV_CATALOG_ID) return res.json({ metas: [] });
+    try {
+      const metas = await emby.getLiveTvChannelMetas(options, cfg);
+      return res.json({ metas });
+    } catch (err) {
+      console.error("Catalog handler error:", err.message);
+      return res.json({ metas: [] });
+    }
+  }
 
   try {
     const metas = await emby.getLibraryMetas(id, type, options, cfg);
@@ -263,12 +308,25 @@ app.get("/:cfg/stream/:type/:id.json", async (req, res) => {
     const streams = (raw || [])
       .filter(s => s.directPlayUrl)
       .map(s => {
+        const baseTitle = s.qualityTitle || (s.isLive ? "Live Stream" : "Direct Play");
+        const labelParts = [baseTitle];
+        if (s.isLive && s.currentProgramName) labelParts.push(s.currentProgramName);
         const stream = {
-          title : s.qualityTitle || "Direct Play",
-          name  : "Emby",
-          url   : s.directPlayUrl,
-          behaviorHints: { notWebReady: true, bingeGroup: "Emby-" + s.qualityTitle }
+          title : labelParts.join(" - "),
+          name  : s.isLive ? "Emby Live" : "Emby",
+          url   : s.directPlayUrl
         };
+        const behaviorHints = { bingeGroup: `Emby-${s.qualityTitle || (s.isLive ? "Live" : "Stream")}` };
+        if (s.isLive) {
+          behaviorHints.live = true;
+          stream.isLive = true;
+          if (s.currentProgramOverview) {
+            stream.description = s.currentProgramOverview;
+          }
+        } else {
+          behaviorHints.notWebReady = true;
+        }
+        stream.behaviorHints = behaviorHints;
         if (Array.isArray(s.subtitles) && s.subtitles.length) {
           stream.subtitles = s.subtitles.map(sub => ({
             url: sub.url,

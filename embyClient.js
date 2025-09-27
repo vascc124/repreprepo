@@ -27,7 +27,7 @@ const COLLECTION_TYPE_MAP = {
 const DEFAULT_CATALOG_LIMIT = 100;
 const FALLBACK_SUBTITLE_FORMAT = 'vtt';
 const FALLBACK_META_PREFIX = "emby";
-const EMBY_ID_KINDS = { MOVIE: "movie", SERIES: "series", EPISODE: "episode" };
+const EMBY_ID_KINDS = { MOVIE: "movie", SERIES: "series", EPISODE: "episode", CHANNEL: "channel" };
 
 const MOVIE_ITEM_TYPES = ['Movie', 'Video'];
 const SERIES_ITEM_TYPES = ['Series', 'Folder'];
@@ -200,17 +200,51 @@ function appendAuthParams(rawUrl, config, extraParams = {}) {
     }
 }
 
-async function requestPlaybackInfo(itemId, config) {
+async function requestPlaybackInfo(itemId, config, options = {}) {
     if (!itemId || !config || !config.serverUrl) return null;
     const headers = buildEmbyHeaders(config);
     const params = buildRequestParams({}, config, { includeUserId: true });
+
+    const {
+        autoOpenLiveStream = false,
+        maxStreamingBitrate,
+        mediaSourceId,
+        startPositionTicks,
+        liveStreamId,
+        enableAdaptiveBitrate,
+        enableDirectPlay,
+        enableDirectStream,
+        enableTranscoding,
+        deviceProfile
+    } = options || {};
+
     const payload = {
         UserId: config.userId,
-        AutoOpenLiveStream: false,
-        EnableDirectPlay: true,
-        EnableDirectStream: true,
-        EnableTranscoding: true
+        AutoOpenLiveStream: Boolean(autoOpenLiveStream),
+        EnableDirectPlay: enableDirectPlay !== undefined ? Boolean(enableDirectPlay) : true,
+        EnableDirectStream: enableDirectStream !== undefined ? Boolean(enableDirectStream) : true,
+        EnableTranscoding: enableTranscoding !== undefined ? Boolean(enableTranscoding) : true
     };
+
+    if (typeof maxStreamingBitrate === 'number' && maxStreamingBitrate > 0) {
+        payload.MaxStreamingBitrate = maxStreamingBitrate;
+    }
+    if (typeof startPositionTicks === 'number' && startPositionTicks >= 0) {
+        payload.StartPositionTicks = startPositionTicks;
+    }
+    if (mediaSourceId) {
+        payload.MediaSourceId = mediaSourceId;
+    }
+    if (liveStreamId) {
+        payload.LiveStreamId = liveStreamId;
+    }
+    if (enableAdaptiveBitrate !== undefined) {
+        payload.EnableAdaptiveBitrateStreaming = Boolean(enableAdaptiveBitrate);
+    }
+    if (deviceProfile) {
+        payload.DeviceProfile = deviceProfile;
+    }
+
     try {
         const response = await axios.post(`${config.serverUrl}/Items/${itemId}/PlaybackInfo`, payload, {
             headers,
@@ -867,11 +901,168 @@ async function getLibraryMetas(libraryId, stremioType, options = {}, config) {
     return metas.filter(Boolean);
 }
 
+function buildLiveChannelName(channel) {
+    if (!channel) return 'Live Channel';
+    const rawNumber = channel.Number || channel.ChannelNumber || channel.SortName || null;
+    const rawName = channel.Name || channel.OriginalTitle || 'Live Channel';
+    const number = rawNumber ? String(rawNumber).trim() : '';
+    const name = rawName ? String(rawName).trim() : 'Live Channel';
+    if (number && !name.toLowerCase().startsWith(number.toLowerCase())) {
+        return `${number} ${name}`.trim();
+    }
+    return name;
+}
+
+function formatProgramTimeWindow(startIso, endIso) {
+    const formatTime = (iso) => {
+        if (!iso) return null;
+        const date = new Date(iso);
+        if (Number.isNaN(date.getTime())) return null;
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    };
+    const start = formatTime(startIso);
+    const end = formatTime(endIso);
+    if (start && end) return `${start} - ${end}`;
+    return start || end || null;
+}
+
+function buildLiveChannelDescription(channel, program) {
+    const parts = [];
+    if (program && program.Name) {
+        let line = `Live now: ${program.Name}`;
+        const window = formatProgramTimeWindow(program.StartDate, program.EndDate);
+        if (window) line += ` (${window})`;
+        parts.push(line);
+        if (program.Overview) parts.push(program.Overview);
+    }
+    if (channel && channel.Overview) parts.push(channel.Overview);
+    if (!parts.length) parts.push('Live channel from your Emby server.');
+    return parts.join('\n\n');
+}
+
+function mapLiveChannelToMeta(channel, config) {
+    if (!channel || !channel.Id) return null;
+    const metaId = buildFallbackMetaId(EMBY_ID_KINDS.CHANNEL, channel.Id);
+    if (!metaId) return null;
+
+    const currentProgram = channel.CurrentProgram || channel.ProgramInfo || null;
+    const meta = {
+        id: metaId,
+        type: 'channel',
+        name: buildLiveChannelName(channel),
+        description: buildLiveChannelDescription(channel, currentProgram)
+    };
+
+    const poster = buildPrimaryImageUrl(channel, config);
+    if (poster) {
+        meta.poster = poster;
+        meta.logo = poster;
+    }
+
+    const background = buildBackdropImageUrl(channel, config);
+    if (background) meta.background = background;
+
+    const behaviorHints = { live: true, defaultVideoId: metaId };
+    const channelNumber = channel.ChannelNumber || channel.Number || null;
+    if (channelNumber) behaviorHints.channelNumber = channelNumber;
+    meta.behaviorHints = behaviorHints;
+
+    if (Array.isArray(channel.Genres) && channel.Genres.length) {
+        meta.genres = channel.Genres;
+    } else if (channel.ChannelType) {
+        meta.genres = [channel.ChannelType];
+    }
+
+    const videos = [];
+    if (currentProgram) {
+        videos.push({
+            id: `${metaId}:live`,
+            title: currentProgram.Name || meta.name,
+            overview: currentProgram.Overview || null,
+            released: currentProgram.StartDate || null
+        });
+    }
+    if (videos.length) meta.videos = videos;
+
+    return meta;
+}
+
+async function fetchLiveTvChannelById(channelId, config) {
+    if (!channelId || !config || !config.serverUrl) return null;
+    const params = {
+        UserId: config.userId,
+        EnableImageTypes: 'Primary,Backdrop',
+        ImageTypeLimit: 2,
+        AddCurrentProgram: true
+    };
+    const liveData = await makeEmbyApiRequest(`${config.serverUrl}/LiveTv/Channels/${channelId}`, params, config);
+    if (liveData && liveData.Id) {
+        if (!liveData.ImageTags) {
+            const fallbackItem = await getItemById(channelId, config);
+            return fallbackItem ? { ...fallbackItem, ...liveData } : liveData;
+        }
+        return liveData;
+    }
+    return await getItemById(channelId, config);
+}
+
+async function getLiveTvChannelMeta(metaId, config) {
+    if (!metaId || !config) return null;
+    const fallback = parseFallbackMetaId(metaId);
+    const channelId = fallback && fallback.kind === EMBY_ID_KINDS.CHANNEL ? fallback.rawId : metaId;
+    const rawChannel = await fetchLiveTvChannelById(channelId, config);
+    if (!rawChannel) return null;
+    return mapLiveChannelToMeta(rawChannel, config);
+}
+
+async function getLiveTvChannelMetas(options = {}, config) {
+    if (!config || !config.serverUrl) return [];
+    const params = {
+        UserId: config.userId,
+        EnableImageTypes: 'Primary,Backdrop',
+        ImageTypeLimit: 2,
+        AddCurrentProgram: true,
+        SortOrder: 'Ascending'
+    };
+    if (typeof options.skip === 'number' && options.skip >= 0) {
+        params.StartIndex = options.skip;
+    }
+    if (typeof options.limit === 'number' && options.limit > 0) {
+        params.Limit = options.limit;
+    }
+    if (options.search && options.search.trim()) {
+        params.SearchTerm = options.search.trim();
+    }
+    if (options.sort === 'lastAdded') {
+        params.SortBy = 'DateCreated';
+        params.SortOrder = 'Descending';
+    } else {
+        params.SortBy = 'SortName';
+    }
+
+    const data = await makeEmbyApiRequest(`${config.serverUrl}/LiveTv/Channels`, params, config);
+    const channels = Array.isArray(data && data.Items) ? data.Items : [];
+    return channels.map(channel => mapLiveChannelToMeta(channel, config)).filter(Boolean);
+}
+
+async function hasLiveTvChannels(config) {
+    if (!config || !config.serverUrl || !config.userId) return false;
+    const data = await makeEmbyApiRequest(`${config.serverUrl}/LiveTv/Channels`, { UserId: config.userId, Limit: 1 }, config);
+    return Array.isArray(data && data.Items) && data.Items.length > 0;
+}
+
 async function getMeta(metaId, stremioType, config) {
     if (!metaId || !stremioType) return null;
 
+    if (stremioType === 'channel') {
+        return await getLiveTvChannelMeta(metaId, config);
+    }
+
     const fallbackMeta = parseFallbackMetaId(metaId);
     if (fallbackMeta) {
+        if (fallbackMeta.kind === EMBY_ID_KINDS.CHANNEL) {
+            return await getLiveTvChannelMeta(metaId, config);
+        }
         const item = await getItemById(fallbackMeta.rawId, config);
         if (!item) return null;
         const includeVideos = stremioType === 'series';
@@ -962,8 +1153,8 @@ function mapSubtitleStreams(source, embyItem, config) {
  * @param {object} config - The configuration object containing serverUrl, userId, and accessToken.
  * @returns {Promise<Array<object>|null>} An array of stream detail objects or null if no suitable streams are found.
  */
-async function getPlaybackStreams(embyItem, seriesName = null, config) {
-    const playbackInfoData = await requestPlaybackInfo(embyItem.Id, config);
+async function getPlaybackStreams(embyItem, seriesName = null, config, options = {}) {
+    const playbackInfoData = await requestPlaybackInfo(embyItem.Id, config, options);
 
     if (!playbackInfoData?.MediaSources?.length) {
         console.warn('[StreamBridge] No media sources found for item:', embyItem.Name, `(${embyItem.Id})`);
@@ -971,6 +1162,10 @@ async function getPlaybackStreams(embyItem, seriesName = null, config) {
     }
 
     const streamDetailsArray = [];
+    const playSessionId = playbackInfoData.PlaySessionId || (Array.isArray(playbackInfoData.MediaSources) ? playbackInfoData.MediaSources.find(ms => ms?.PlaySessionId)?.PlaySessionId : null);
+    const liveStreamId = playbackInfoData.LiveStreamId || (Array.isArray(playbackInfoData.MediaSources) ? playbackInfoData.MediaSources.find(ms => ms?.LiveStreamId)?.LiveStreamId : null);
+    const nowPlaying = playbackInfoData.NowPlayingItem || playbackInfoData.CurrentProgram || null;
+    const isLiveStream = Boolean(options.autoOpenLiveStream || playbackInfoData.IsLiveStream || (embyItem.Type && typeof embyItem.Type === 'string' && embyItem.Type.toLowerCase() === 'livetvchannel'));
 
     for (const source of playbackInfoData.MediaSources) {
         if (!source) continue;
@@ -979,29 +1174,34 @@ async function getPlaybackStreams(embyItem, seriesName = null, config) {
         const audioStream = Array.isArray(source.MediaStreams) ? source.MediaStreams.find(ms => ms && ms.Type === 'Audio') : null;
         const subtitles = mapSubtitleStreams(source, embyItem, config);
 
+        const extraAuthParams = {};
+        if (source.Id) extraAuthParams.MediaSourceId = source.Id;
+        if (playSessionId) extraAuthParams.PlaySessionId = playSessionId;
+        if (liveStreamId) extraAuthParams.LiveStreamId = liveStreamId;
+
         let directPlayUrl = null;
 
         if (source.DirectStreamUrl) {
             directPlayUrl = appendAuthParams(source.DirectStreamUrl, config, {
-                MediaSourceId: source.Id,
+                ...extraAuthParams,
                 Static: source.SupportsDirectPlay ? 'true' : undefined
             });
         }
 
         if (!directPlayUrl && source.Path && /^https?:/i.test(source.Path)) {
-            directPlayUrl = appendAuthParams(source.Path, config, { MediaSourceId: source.Id });
+            directPlayUrl = appendAuthParams(source.Path, config, extraAuthParams);
         }
 
         if (!directPlayUrl && source.TranscodingUrl) {
             const transcodingBase = source.TranscodingUrl.startsWith('http') ? source.TranscodingUrl : `${config.serverUrl}${source.TranscodingUrl}`;
-            directPlayUrl = appendAuthParams(transcodingBase, config, { MediaSourceId: source.Id });
+            directPlayUrl = appendAuthParams(transcodingBase, config, extraAuthParams);
         }
 
         if (!directPlayUrl) {
             const extension = source.Container ? `.${source.Container}` : '';
             const fallbackBase = `${config.serverUrl}/Videos/${embyItem.Id}/stream${extension}`;
             directPlayUrl = appendAuthParams(fallbackBase, config, {
-                MediaSourceId: source.Id,
+                ...extraAuthParams,
                 Static: source.SupportsDirectPlay ? 'true' : undefined
             });
         }
@@ -1026,7 +1226,8 @@ async function getPlaybackStreams(embyItem, seriesName = null, config) {
         }
         if (!qualityTitle && source.Container) qualityTitle = source.Container.toUpperCase();
         if (!qualityTitle && source.Name) qualityTitle = source.Name;
-        if (!qualityTitle) qualityTitle = 'Direct Play';
+        if (isLiveStream && qualityTitle) qualityTitle = `${qualityTitle} LIVE`;
+        if (!qualityTitle) qualityTitle = isLiveStream ? 'Live Stream' : 'Direct Play';
 
         streamDetailsArray.push({
             directPlayUrl,
@@ -1042,7 +1243,13 @@ async function getPlaybackStreams(embyItem, seriesName = null, config) {
             qualityTitle,
             subtitles,
             embyUrlBase: config.serverUrl,
-            apiKey: config.accessToken
+            apiKey: config.accessToken,
+            playSessionId,
+            liveStreamId,
+            isLive: isLiveStream,
+            currentProgramName: nowPlaying?.Name || null,
+            currentProgramOverview: nowPlaying?.Overview || null,
+            streamType: source.Type || source.Protocol || null
         });
     }
 
@@ -1079,6 +1286,10 @@ async function getStreamsForFallback(fallbackMeta, config) {
 
     if (kind === EMBY_ID_KINDS.EPISODE) {
         return getPlaybackStreams(item, item.SeriesName || null, config);
+    }
+
+    if (kind === EMBY_ID_KINDS.CHANNEL) {
+        return getPlaybackStreams(item, null, config, { autoOpenLiveStream: true });
     }
 
     if (kind === EMBY_ID_KINDS.SERIES) {
@@ -1180,7 +1391,10 @@ module.exports = {
     parseMediaId,
     getLibraryDefinitions,
     getLibraryMetas,
-    getMeta
+    getMeta,
+    getLiveTvChannelMetas,
+    getLiveTvChannelMeta,
+    hasLiveTvChannels
 };
 
 

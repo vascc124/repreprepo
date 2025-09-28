@@ -57,6 +57,14 @@ function buildFallbackMetaId(kind, rawId) {
     return encoded ? `${FALLBACK_META_PREFIX}~${kind}~${encoded}` : null;
 }
 
+function normalizeFallbackMetaId(metaId) {
+    if (!metaId || typeof metaId !== 'string') return metaId;
+    if (!metaId.startsWith(`${FALLBACK_META_PREFIX}~`)) return metaId;
+    const colonIndex = metaId.indexOf(':');
+    if (colonIndex === -1) return metaId;
+    return metaId.slice(0, colonIndex);
+}
+
 const COMMON_VIDEO_EXTENSIONS = new Set(['mkv','mp4','avi','mov','wmv','flv','m4v','mpg','mpeg','ts','m2ts','webm','iso','m2v','ogm','3gp','divx']);
 const RELEASE_TOKEN_REGEX = /\b(480p|720p|1080p|1440p|2160p|4k|8k|x264|x265|h264|h265|hevc|hdr|hdr10|dvdrip|brrip|bluray|web[- ]?dl|webrip|hdtv|remux|ac3|dts|10bit|8bit|proper|repack|uncut|extended|imax|subbed|multi)\b/gi;
 
@@ -138,8 +146,9 @@ function deriveDisplayName(item) {
 
 function parseFallbackMetaId(metaId) {
     if (!metaId || typeof metaId !== 'string') return null;
-    if (!metaId.startsWith(`${FALLBACK_META_PREFIX}~`)) return null;
-    const parts = metaId.split('~');
+    const normalized = normalizeFallbackMetaId(metaId);
+    if (!normalized || !normalized.startsWith(`${FALLBACK_META_PREFIX}~`)) return null;
+    const parts = normalized.split('~');
     if (parts.length !== 3) return null;
     const [, kind, encoded] = parts;
     const rawId = decodeEmbyIdValue(encoded);
@@ -976,7 +985,7 @@ function mapLiveChannelToMeta(channel, config) {
     const videos = [];
     if (currentProgram) {
         videos.push({
-            id: `${metaId}:live`,
+            id: metaId,
             title: currentProgram.Name || meta.name,
             overview: currentProgram.Overview || null,
             released: currentProgram.StartDate || null
@@ -1396,15 +1405,4 @@ module.exports = {
     getLiveTvChannelMeta,
     hasLiveTvChannels
 };
-
-
-
-
-
-
-
-
-
-
-
 

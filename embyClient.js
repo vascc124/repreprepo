@@ -459,11 +459,19 @@ async function makeEmbyApiRequest(url, params = {}, config) {
     try {
         const headers = buildEmbyHeaders(config);
         const query = buildRequestParams(params, config, { includeUserId: true });
+        console.log('[DEBUG] Request URL:', url);
+        console.log('[DEBUG] Query params:', JSON.stringify(query));
+        console.log('[DEBUG] Headers:', JSON.stringify({
+            ...headers,
+            'X-Emby-Token': headers['X-Emby-Token'] ? '***' + headers['X-Emby-Token'].slice(-4) : 'missing',
+            'X-Emby-Authorization': headers['X-Emby-Authorization']
+        }));
         const response = await axios.get(url, {
             headers,
             params: query,
             timeout: DEFAULT_REQUEST_TIMEOUT
         });
+        console.log('[DEBUG] Response status:', response.status);
         return response.data;
     } catch (err) {
         const status = err.response?.status;
@@ -471,6 +479,8 @@ async function makeEmbyApiRequest(url, params = {}, config) {
         console.warn('[StreamBridge] API request failed for ' + url + ' with params ' + JSON.stringify(params) + statusHint + ':', err.message);
         if (status === 401) {
              console.log('[StreamBridge] Detected Unauthorized (401). The provided access token might be invalid or expired.');
+             console.log('[DEBUG] 401 Response headers:', JSON.stringify(err.response?.headers));
+             console.log('[DEBUG] 401 Response data:', JSON.stringify(err.response?.data));
         }
         return null; // Indicate failure
     }

@@ -449,7 +449,7 @@ function parseMediaId(idOrExternalId) {
 async function makeEmbyApiRequest(url, params = {}, config) {
     try {
         const headers = buildEmbyHeaders(config);
-        const query = buildRequestParams(params, config);
+        const query = buildRequestParams(params, config, { includeUserId: true });
         const response = await axios.get(url, {
             headers,
             params: query,

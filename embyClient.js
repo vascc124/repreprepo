@@ -165,7 +165,16 @@ function buildEmbyHeaders(config) {
     headers[HEADER_EMBY_DEVICE_NAME] = EMBY_DEVICE_NAME;
     headers[HEADER_EMBY_CLIENT] = EMBY_CLIENT_NAME;
     headers[HEADER_EMBY_CLIENT_VERSION] = EMBY_CLIENT_VERSION;
-    headers[HEADER_EMBY_AUTHORIZATION] = `MediaBrowser Client="${EMBY_CLIENT_NAME}", Device="${EMBY_DEVICE_NAME}", DeviceId="${DEVICE_ID}", Version="${EMBY_CLIENT_VERSION}"`;
+    const authParts = [
+        `Client="${EMBY_CLIENT_NAME}"`,
+        `Device="${EMBY_DEVICE_NAME}"`,
+        `DeviceId="${DEVICE_ID}"`,
+        `Version="${EMBY_CLIENT_VERSION}"`
+    ];
+    if (config && config.accessToken) {
+        authParts.push(`Token="${config.accessToken}"`);
+    }
+    headers[HEADER_EMBY_AUTHORIZATION] = `MediaBrowser ${authParts.join(', ')}`;
     return headers;
 }
 

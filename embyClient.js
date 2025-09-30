@@ -1252,6 +1252,28 @@ async function getPlaybackStreams(embyItem, seriesName = null, config, options =
                 }
             }
         }
+        if (audioStream) {
+            const audioLang = audioStream.Language || audioStream.DisplayLanguage;
+            const audioCodec = audioStream.Codec;
+            const audioChannels = audioStream.Channels;
+            const audioProfile = audioStream.Profile;
+
+            let audioInfo = '';
+            if (audioLang) {
+                audioInfo = audioLang;
+            }
+            if (audioCodec) {
+                const codecName = audioCodec.toUpperCase();
+                audioInfo = audioInfo ? `${audioInfo} ${codecName}` : codecName;
+            }
+            if (audioChannels) {
+                const channelLayout = audioChannels === 8 ? '7.1' : audioChannels === 6 ? '5.1' : audioChannels === 2 ? '2.0' : audioChannels === 1 ? '1.0' : `${audioChannels}ch`;
+                audioInfo = audioInfo ? `${audioInfo} ${channelLayout}` : channelLayout;
+            }
+            if (audioInfo) {
+                qualityTitle = qualityTitle ? `${qualityTitle} | ${audioInfo}` : audioInfo;
+            }
+        }
         if (!qualityTitle && source.Container) qualityTitle = source.Container.toUpperCase();
         if (!qualityTitle && source.Name) qualityTitle = source.Name;
         if (isLiveStream && qualityTitle) qualityTitle = `${qualityTitle} LIVE`;
